@@ -43,11 +43,11 @@ ICCS_subset <- ICCS_data[, c("idstud", "idschool", "idclass", "country",
 mit_data <- ICCS_subset %>%
   rename_all(tolower)
 
-save(mit_data, file = "./data/mit_data2.Rdata")
+save(mit_data, file = "./data/mit_data.Rdata")
 ```
 
 ```{r cargar-datos}
-load("./data/mit_data2.Rdata")
+load("./data/mit_data.Rdata")
 ```
 
 ---
