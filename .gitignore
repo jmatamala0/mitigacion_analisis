@@ -1,0 +1,21 @@
+# Archivos generados por R Markdown (se regeneran desde los .Rmd)
+*.html
+/*_files/
+/*_cache/
+
+# Salidas generadas
+output/
+
+# Datos: ignorar todo data/ y luego incluir solo lo liviano
+data/*
+!data/mit_data.Rdata
+!data/mit_data2.Rdata
+
+# R / RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# macOS
+.DS_Store
