@@ -1,0 +1,529 @@
+---
+title: "Análisis de Mitigación - Modelos Multinivel"
+author: "Jorge Matamala"
+date: ""
+output:
+  html_document:
+    code_folding: hide
+    fig_height: 8
+    fig_width: 10
+    highlight: kate
+    number_sections: yes
+    theme: paper
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, error = FALSE, warning = FALSE)
+library(knitr)
+```
+
+```{r librerias}
+pacman::p_load(haven, dplyr, skimr, psych, ggplot2, lme4, rio, stargazer, texreg,
+               sjPlot, ggeffects, broom.mixed, writexl, stringr, purrr, lmerTest)
+
+setwd("~/Library/CloudStorage/Dropbox/Mitigation_ICCS/analisis")
+```
+
+```{r cargar-datos-raw, eval=FALSE, echo=FALSE}
+ICCS_data <- rio::import("data/ICCS_School_Teachers_Students_Europe_LA.dta")
+
+ICCS_subset <- ICCS_data[, c("idstud", "idschool", "idclass", "country",
+                              "S_NISB",
+                              "IC3G13A", "IC3G13B", "S_CIVLRN",
+                              "S_OPDISC", "S_SCHPART", "S_VALPARTS",
+                              "S_ABUSE", "S_STUTREL", "S_INTACT",
+                              "PV1CIV")]
+
+mit_data <- ICCS_subset %>%
+  rename_all(tolower)
+
+save(mit_data, file = "./data/mit_data2.Rdata")
+```
+
+```{r cargar-datos}
+load("./data/mit_data2.Rdata")
+```
+
+---
+
+# Preparación de datos
+
+```{r variables-moderadoras}
+## Vector con las 9 variables moderadoras
+vars_mod <- c("ic3g13a", "ic3g13b", "s_civlrn",
+              "s_opdisc", "s_schpart", "s_valparts",
+              "s_abuse", "s_stutrel", "s_intact")
+```
+
+```{r promedios-y-cwc}
+## -------------------------------------------------------------------
+## Para cada variable moderadora se calculan:
+##   _m   : promedio de escuela (between-school) → parte nivel 2
+##   _cwc : valor individual centrado en la media del grupo (within-school)
+##          → parte nivel 1, ortogonal a _m para evitar multicolinealidad
+##
+## IMPORTANTE: se usa country + idschool como ID único de escuela
+## ya que el mismo idschool puede existir en distintos países
+## -------------------------------------------------------------------
+
+promedios_escuela <- mit_data %>%
+  group_by(country, idschool) %>%
+  summarise(
+    across(all_of(vars_mod),
+           ~ mean(.x, na.rm = TRUE),
+           .names = "{.col}_m"),
+    .groups = "drop"
+  )
+
+mit_data <- mit_data %>%
+  left_join(promedios_escuela, by = c("country", "idschool"))
+
+## Centrado within-cluster (CWC) para cada variable individual
+for (v in vars_mod) {
+  mit_data[[paste0(v, "_cwc")]] <- mit_data[[v]] - mit_data[[paste0(v, "_m")]]
+}
+```
+
+---
+
+# Descriptivos
+
+```{r descriptivos}
+table_1 <- mit_data %>%
+  group_by(country) %>%
+  summarise(
+    Estudiantes = n_distinct(idstud),
+    Escuelas    = n_distinct(idschool)
+  ) %>%
+  arrange(country)
+
+kable(table_1, caption = "Tabla 1. Número de estudiantes y escuelas por país")
+
+describe(mit_data$pv1civ)
+describe(mit_data$s_nisb)
+```
+
+---
+
+# Modelos multinivel por país y variable moderadora
+
+## Lógica de los modelos
+
+Para cada país y cada una de las 9 variables moderadoras se estiman 5 modelos:
+
+| Modelo | Especificación | Propósito |
+|--------|---------------|-----------|
+| **M0** | `pv1civ ~ 1 + (1 \| idschool)` | ICC: ¿hay varianza entre escuelas? |
+| **M1a** | `pv1civ ~ s_nisb + (1 \| idschool)` | Efecto del NSE (intercepto aleatorio) |
+| **M1b** | `pv1civ ~ s_nisb + (s_nisb \| idschool)` | ¿El efecto del NSE varía entre escuelas? |
+| **M2** | `pv1civ ~ s_nisb + var_cwc + var_m + (s_nisb \| idschool)` | ¿El contexto escolar explica esa variación? |
+| **M3** | `pv1civ ~ s_nisb + var_cwc + var_m + s_nisb:var_m + (s_nisb \| idschool)` | ¿El contexto escolar **modera** el efecto del NSE? |
+
+`var_cwc` = variable individual centrada en la media del grupo (within-school).
+`var_m`   = promedio de escuela (between-school).
+
+```{r funcion-modelos}
+## -------------------------------------------------------------------
+## Función principal: estima los 5 modelos para una variable y un país
+## Usa var_cwc (centrada) en lugar del valor bruto individual
+## para evitar multicolinealidad con var_m
+## -------------------------------------------------------------------
+
+estimar_modelos <- function(datos, var) {
+
+  var_cwc <- paste0(var, "_cwc")
+  var_m   <- paste0(var, "_m")
+
+  resultados <- list()
+
+  resultados[["M0"]] <- tryCatch(
+    lmer(pv1civ ~ 1 + (1 | idschool),
+         data = datos, REML = FALSE),
+    error = function(e) NULL
+  )
+
+  resultados[["M1a"]] <- tryCatch(
+    lmer(pv1civ ~ s_nisb + (1 | idschool),
+         data = datos, REML = FALSE),
+    error = function(e) NULL
+  )
+
+  resultados[["M1b"]] <- tryCatch(
+    lmer(pv1civ ~ s_nisb + (s_nisb | idschool),
+         data = datos, REML = FALSE),
+    error = function(e) NULL
+  )
+
+  formula_m2 <- as.formula(
+    paste0("pv1civ ~ s_nisb + ", var_cwc, " + ", var_m,
+           " + (s_nisb | idschool)")
+  )
+  resultados[["M2"]] <- tryCatch(
+    lmer(formula_m2, data = datos, REML = FALSE),
+    error = function(e) NULL
+  )
+
+  formula_m3 <- as.formula(
+    paste0("pv1civ ~ s_nisb + ", var_cwc, " + ", var_m,
+           " + s_nisb:", var_m, " + (s_nisb | idschool)")
+  )
+  resultados[["M3"]] <- tryCatch(
+    lmer(formula_m3, data = datos, REML = FALSE),
+    error = function(e) NULL
+  )
+
+  return(resultados)
+}
+```
+
+```{r funcion-diagnosticos}
+## -------------------------------------------------------------------
+## Función de diagnósticos: evalúa la cadena lógica antes de
+## interpretar el coeficiente de interacción en M3
+##
+## Devuelve un data frame con:
+##   - ICC del modelo nulo
+##   - ¿M1b mejora sobre M1a? (LRT p-valor)
+##   - ¿M2 mejora sobre M1b? (LRT p-valor)
+##   - ¿Es singular M1b? (sobreparametrización)
+##   - ¿Es singular M2?
+##   - ¿Es singular M3?
+##   - Semáforo de confianza en la interacción
+## -------------------------------------------------------------------
+
+diagnosticar_modelos <- function(lista_modelos, pais, var) {
+
+  m0  <- lista_modelos[["M0"]]
+  m1a <- lista_modelos[["M1a"]]
+  m1b <- lista_modelos[["M1b"]]
+  m2  <- lista_modelos[["M2"]]
+  m3  <- lista_modelos[["M3"]]
+
+  ## ICC desde M0
+  icc_val <- tryCatch({
+    vc <- as.data.frame(VarCorr(m0))
+    vb <- sum(vc$vcov[vc$grp != "Residual"])
+    vt <- sum(vc$vcov)
+    round(vb / vt, 4)
+  }, error = function(e) NA)
+
+  ## LRT: M1b vs M1a
+  lrt_m1b_p <- tryCatch({
+    tt <- anova(m1a, m1b)
+    round(tt[["Pr(>Chisq)"]][2], 4)
+  }, error = function(e) NA)
+
+  ## LRT: M2 vs M1b
+  lrt_m2_p <- tryCatch({
+    tt <- anova(m1b, m2)
+    round(tt[["Pr(>Chisq)"]][2], 4)
+  }, error = function(e) NA)
+
+  ## LRT: M3 vs M2 (¿agrega la interacción?)
+  lrt_m3_p <- tryCatch({
+    tt <- anova(m2, m3)
+    round(tt[["Pr(>Chisq)"]][2], 4)
+  }, error = function(e) NA)
+
+  ## Singularidad
+  sing_m1b <- tryCatch(isSingular(m1b), error = function(e) NA)
+  sing_m2  <- tryCatch(isSingular(m2),  error = function(e) NA)
+  sing_m3  <- tryCatch(isSingular(m3),  error = function(e) NA)
+
+  ## Semáforo de confianza en la interacción de M3:
+  ##   VERDE  : ICC alto + M1b mejora + M2 mejora + ninguno singular
+  ##   AMARILLO: alguna condición dudosa
+  ##   ROJO   : singularidad en M3 o M2 no mejora sobre M1b
+  confianza <- dplyr::case_when(
+    isTRUE(sing_m3) | isTRUE(sing_m2)         ~ "ROJO - singular",
+    !is.na(lrt_m2_p) & lrt_m2_p > 0.05        ~ "AMARILLO - M2 no mejora",
+    !is.na(lrt_m1b_p) & lrt_m1b_p > 0.05      ~ "AMARILLO - pendiente aleatoria no justificada",
+    icc_val < 0.05                             ~ "AMARILLO - ICC bajo",
+    TRUE                                       ~ "VERDE"
+  )
+
+  data.frame(
+    Pais                  = pais,
+    Variable              = var,
+    ICC_M0                = icc_val,
+    LRT_M1b_vs_M1a_p      = lrt_m1b_p,
+    LRT_M2_vs_M1b_p       = lrt_m2_p,
+    LRT_M3_vs_M2_p        = lrt_m3_p,
+    Singular_M1b          = sing_m1b,
+    Singular_M2           = sing_m2,
+    Singular_M3           = sing_m3,
+    Confianza_interaccion = confianza,
+    stringsAsFactors      = FALSE
+  )
+}
+```
+
+```{r funcion-extraer-resultados}
+## -------------------------------------------------------------------
+## Función que convierte una lista de modelos en tabla resumen para Excel
+## -------------------------------------------------------------------
+
+extraer_resultados <- function(lista_modelos, pais, var) {
+
+  modelos_nombres <- names(lista_modelos)
+
+  map_dfr(modelos_nombres, function(nombre_modelo) {
+
+    mod <- lista_modelos[[nombre_modelo]]
+
+    if (is.null(mod)) {
+      return(data.frame(
+        Pais       = pais, Variable = var, Modelo = nombre_modelo,
+        Termino    = "CONVERGENCIA FALLIDA",
+        Estimacion = NA, SE = NA, t_valor = NA, p_valor = NA,
+        AIC = NA, BIC = NA, ICC = NA,
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    coefs <- as.data.frame(coef(summary(mod)))
+    coefs$Termino <- rownames(coefs)
+    rownames(coefs) <- NULL
+
+    names(coefs)[names(coefs) == "Estimate"]   <- "Estimacion"
+    names(coefs)[names(coefs) == "Std. Error"] <- "SE"
+    names(coefs)[names(coefs) == "t value"]    <- "t_valor"
+    names(coefs)[names(coefs) == "Pr(>|t|)"]   <- "p_valor"
+
+    coefs$AIC <- AIC(mod)
+    coefs$BIC <- BIC(mod)
+
+    coefs$ICC <- tryCatch({
+      vc  <- as.data.frame(VarCorr(mod))
+      vb  <- sum(vc$vcov[vc$grp != "Residual"])
+      vt  <- sum(vc$vcov)
+      round(vb / vt, 4)
+    }, error = function(e) NA)
+
+    coefs$Pais     <- pais
+    coefs$Variable <- var
+    coefs$Modelo   <- nombre_modelo
+
+    coefs[, c("Pais", "Variable", "Modelo", "Termino",
+              "Estimacion", "SE", "t_valor", "p_valor",
+              "AIC", "BIC", "ICC")]
+  })
+}
+```
+
+```{r correr-modelos}
+## -------------------------------------------------------------------
+## TODOS LOS PAÍSES de la muestra
+## (para volver a solo Chile: agregar filter(country == "CHL") abajo)
+## -------------------------------------------------------------------
+
+mit_data_modelo <- mit_data   # sin filtro de país
+
+paises <- sort(unique(mit_data_modelo$country))
+cat("Países en la muestra:", paste(paises, collapse = ", "), "\n\n")
+
+## Estructuras de resultados
+resultados_modelos  <- list()
+tabla_diagnosticos  <- list()
+
+for (pais in paises) {
+
+  datos_pais <- mit_data_modelo %>% filter(country == pais)
+  resultados_modelos[[pais]] <- list()
+
+  for (var in vars_mod) {
+    cat("Estimando | País:", pais, "| Variable:", var, "\n")
+
+    modelos <- estimar_modelos(datos_pais, var)
+    resultados_modelos[[pais]][[var]] <- modelos
+
+    ## Guardar diagnósticos
+    tabla_diagnosticos[[paste(pais, var, sep = "_")]] <-
+      diagnosticar_modelos(modelos, pais, var)
+  }
+}
+
+## Consolidar tabla de diagnósticos
+diagnosticos_df <- bind_rows(tabla_diagnosticos)
+
+cat("\n✓ Modelos estimados para", length(paises), "países y",
+    length(vars_mod), "variables.\n")
+```
+
+---
+
+# Diagnósticos
+
+```{r mostrar-diagnosticos}
+kable(diagnosticos_df,
+      caption = "Tabla de diagnósticos por país y variable moderadora",
+      digits  = 4)
+```
+
+```{r resumen-semaforo}
+## Resumen del semáforo de confianza
+diagnosticos_df %>%
+  count(Confianza_interaccion) %>%
+  kable(caption = "Resumen: confianza en la interacción de M3")
+```
+
+---
+
+# Exportar resultados a Excel
+
+```{r exportar-excel-modelos}
+## -------------------------------------------------------------------
+## 9 archivos Excel (uno por variable), cada uno con una hoja por país
+## que sintetiza los 5 modelos
+## -------------------------------------------------------------------
+
+dir_output <- "./output/modelos_multinivel"
+if (!dir.exists(dir_output)) dir.create(dir_output, recursive = TRUE)
+
+for (var in vars_mod) {
+
+  hojas <- list()
+
+  for (pais in paises) {
+
+    tabla_pais <- extraer_resultados(resultados_modelos[[pais]][[var]], pais, var)
+
+    cols_num <- c("Estimacion", "SE", "t_valor", "p_valor", "AIC", "BIC", "ICC")
+    tabla_pais[cols_num] <- lapply(tabla_pais[cols_num], function(x) round(x, 4))
+
+    hojas[[pais]] <- tabla_pais
+  }
+
+  nombre_archivo <- file.path(dir_output, paste0("modelos_", var, ".xlsx"))
+  writexl::write_xlsx(hojas, path = nombre_archivo)
+  cat("✓ Exportado:", nombre_archivo, "\n")
+}
+```
+
+```{r exportar-excel-diagnosticos}
+## -------------------------------------------------------------------
+## Archivo adicional con todos los diagnósticos consolidados:
+## una hoja por variable moderadora
+## -------------------------------------------------------------------
+
+hojas_diag <- split(diagnosticos_df, diagnosticos_df$Variable)
+
+writexl::write_xlsx(
+  hojas_diag,
+  path = file.path(dir_output, "diagnosticos_modelos.xlsx")
+)
+
+cat("✓ Exportado: diagnosticos_modelos.xlsx\n")
+cat("\n✓ Exportación completa.", length(vars_mod),
+    "archivos de modelos + 1 archivo de diagnósticos en:", dir_output, "\n")
+```
+
+---
+
+# Vista previa
+
+```{r preview-modelos}
+primer_pais <- paises[1]
+primera_var <- vars_mod[1]
+
+tabla_preview <- extraer_resultados(
+  resultados_modelos[[primer_pais]][[primera_var]],
+  primer_pais,
+  primera_var
+)
+
+kable(tabla_preview,
+      caption = paste0("Ejemplo de resultados — País: ", primer_pais,
+                       " | Variable: ", primera_var),
+      digits = 4)
+```
+
+```{r preview-diagnosticos}
+kable(
+  diagnosticos_df %>% filter(Pais == primer_pais),
+  caption = paste0("Diagnósticos — País: ", primer_pais),
+  digits  = 4
+)
+```
+
+```{r}
+## -------------------------------------------------------------------
+## Identificar variables con efecto de mitigación
+## Criterio: coeficiente s_nisb:var_m negativo y p < 0.05
+## -------------------------------------------------------------------
+
+mitigacion <- map_dfr(paises, function(pais) {
+  map_dfr(vars_mod, function(var) {
+
+    mod <- resultados_modelos[[pais]][[var]][["M3"]]
+
+    ## Si M3 no convergió, saltar
+    if (is.null(mod)) return(NULL)
+
+    ## Extraer solo el término de interacción
+    coefs <- as.data.frame(coef(summary(mod)))
+    coefs$Termino <- rownames(coefs)
+
+    termino_int <- paste0("s_nisb:", var, "_m")
+    fila <- coefs[coefs$Termino == termino_int, ]
+
+    if (nrow(fila) == 0) return(NULL)
+
+    ## Recuperar diagnóstico de este país x variable
+    diag <- diagnosticos_df %>%
+      filter(Pais == pais, Variable == var) %>%
+      pull(Confianza_interaccion)
+
+    data.frame(
+      Pais               = pais,
+      Variable           = var,
+      Beta_interaccion   = round(fila$Estimate, 4),
+      SE                 = round(fila$`Std. Error`, 4),
+      t_valor            = round(fila$`t value`, 4),
+      p_valor            = round(fila$`Pr(>|t|)`, 4),
+      Confianza          = diag,
+      stringsAsFactors   = FALSE
+    )
+  })
+})
+
+## -------------------------------------------------------------------
+## Filtrar: negativo + significativo
+## -------------------------------------------------------------------
+
+mitigacion_sig <- mitigacion %>%
+  filter(Beta_interaccion < 0, p_valor < 0.05)
+
+## -------------------------------------------------------------------
+## Resumen en pantalla
+## -------------------------------------------------------------------
+
+cat("=== VARIABLES CON EFECTO DE MITIGACIÓN ===\n\n")
+cat("Total de combinaciones país × variable analizadas:", nrow(mitigacion), "\n")
+cat("Con mitigación (β < 0, p < 0.05):", nrow(mitigacion_sig), "\n\n")
+
+if (nrow(mitigacion_sig) > 0) {
+  print(mitigacion_sig %>% arrange(p_valor))
+} else {
+  cat("Ninguna variable muestra efecto de mitigación significativo.\n")
+}
+
+## -------------------------------------------------------------------
+## Advertencia para los casos con semáforo no verde
+## -------------------------------------------------------------------
+
+mitigacion_sig %>%
+  filter(Confianza != "VERDE") %>%
+  { if (nrow(.) > 0) {
+      cat("\n⚠ Casos significativos pero con diagnóstico dudoso:\n")
+      print(.)
+    }
+  }
+```
+
