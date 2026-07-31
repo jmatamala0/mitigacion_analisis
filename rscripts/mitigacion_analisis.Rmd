@@ -25,7 +25,7 @@ library(knitr)
 ```
 
 ```{r librerias}
-pacman::p_load(haven, dplyr, skimr, psych, ggplot2, lme4, rio, stargazer, texreg,
+pacman::p_load(haven, dplyr, tibble, skimr, psych, ggplot2, lme4, rio, stargazer, texreg,
                sjPlot, ggeffects, broom.mixed, writexl, stringr, purrr, lmerTest)
 
 ```
@@ -102,55 +102,252 @@ for (v in vars_mod) {
 
 # Descriptivos
 
-```{r descriptivos-muestra}
-table_1 <- mit_data %>%
-  group_by(country) %>%
-  summarise(
-    Estudiantes = n_distinct(idstud),
-    Escuelas    = n_distinct(idschool)
-  ) %>%
-  arrange(country)
+Tablas pensadas para la sección de resultados del manuscrito. Se calculan
+sobre la **muestra analítica**: casos con información válida en la variable
+dependiente (`pv1civ`) y en el predictor principal (`s_nisb`).
 
-kable(table_1, caption = "Tabla 1. Número de estudiantes y escuelas por país")
-```
-
-```{r descriptivos-generales}
+```{r descriptivos-setup}
 vars_desc <- c("pv1civ", "s_nisb", vars_mod)
 
-desc_general <- mit_data %>%
-  select(all_of(vars_desc)) %>%
-  describe() %>%
-  as.data.frame() %>%
-  select(n, mean, sd, min, max, skew, kurtosis) %>%
-  round(3)
+etiquetas <- c(
+  pv1civ     = "Conocimiento cívico (PV1)",
+  s_nisb     = "Nivel socioeconómico (NISB)",
+  ic3g13a    = "Participación cívica en el aula (ítem A)",
+  ic3g13b    = "Participación cívica en el aula (ítem B)",
+  s_civlrn   = "Aprendizaje cívico en la escuela",
+  s_opdisc   = "Apertura a la discusión en el aula",
+  s_schpart  = "Participación en la escuela",
+  s_valparts = "Valoración de la participación",
+  s_abuse    = "Abuso físico y verbal en la escuela",
+  s_stutrel  = "Relaciones estudiante-docente",
+  s_intact   = "Interacción social en el aula"
+)
 
-kable(desc_general, caption = "Tabla 2. Descriptivos generales de las variables de interés")
+## ID único de escuela (el mismo idschool se repite entre países)
+mit_data <- mit_data %>% mutate(escuela = paste(country, idschool, sep = "_"))
+
+## Muestra analítica
+mit_an <- mit_data %>% filter(!is.na(pv1civ), !is.na(s_nisb))
+
+## Utilidades de formato
+fmt  <- function(x, d = 2) formatC(x, format = "f", digits = d)
+m_sd <- function(x, d = 2) paste0(fmt(mean(x, na.rm = TRUE), d),
+                                  " (", fmt(sd(x, na.rm = TRUE), d), ")")
+
+## CCI de una variable dentro de un país (modelo nulo de un factor aleatorio)
+icc_var <- function(x, grupo) {
+  d <- data.frame(x = x, g = grupo) %>% filter(!is.na(x))
+  if (length(unique(d$g)) < 2 || var(d$x) == 0) return(NA_real_)
+  m <- tryCatch(lmer(x ~ 1 + (1 | g), data = d, REML = TRUE), error = function(e) NULL)
+  if (is.null(m)) return(NA_real_)
+  vc <- as.data.frame(VarCorr(m))
+  vb <- vc$vcov[vc$grp != "Residual"]
+  vb / (vb + vc$vcov[vc$grp == "Residual"])
+}
+
+cat("N total:", nrow(mit_data),
+    "| N muestra analítica:", nrow(mit_an),
+    "| Excluidos:", nrow(mit_data) - nrow(mit_an), "\n")
 ```
 
-```{r descriptivos-por-pais}
-desc_pais <- mit_data %>%
+## Tabla 1. Composición de la muestra por país
+
+```{r tabla1-muestra}
+tabla1 <- mit_an %>%
   group_by(country) %>%
   summarise(
-    n_estudiantes = n(),
-    n_escuelas    = n_distinct(idschool),
-    across(all_of(vars_desc), ~ round(mean(.x, na.rm = TRUE), 3), .names = "{.col}")
-  )
-
-kable(desc_pais, caption = "Tabla 3. Promedios de variables de interés por país")
-```
-
-```{r descriptivos-por-escuela}
-desc_escuela <- mit_data %>%
-  group_by(country, idschool) %>%
-  summarise(
-    n_estudiantes = n(),
-    across(all_of(vars_desc), ~ round(mean(.x, na.rm = TRUE), 3), .names = "{.col}"),
+    Escuelas    = n_distinct(idschool),
+    Estudiantes = n(),
+    `Est. por escuela` = paste0(fmt(n() / n_distinct(idschool), 1),
+                                " [", min(table(idschool)), "–", max(table(idschool)), "]"),
+    `Conoc. cívico M (DE)` = m_sd(pv1civ, 1),
+    `NSE M (DE)`           = m_sd(s_nisb, 2),
     .groups = "drop"
   ) %>%
-  arrange(country, idschool)
+  rename(País = country) %>%
+  bind_rows(tibble(
+    País = "Total",
+    Escuelas = n_distinct(mit_an$escuela),
+    Estudiantes = nrow(mit_an),
+    `Est. por escuela` = fmt(nrow(mit_an) / n_distinct(mit_an$escuela), 1),
+    `Conoc. cívico M (DE)` = m_sd(mit_an$pv1civ, 1),
+    `NSE M (DE)` = m_sd(mit_an$s_nisb, 2)
+  ))
 
-kable(desc_escuela, caption = "Tabla 4. Promedios de variables de interés por escuela")
+kable(tabla1,
+      caption = "Tabla 1. Composición de la muestra y desempeño por país")
 ```
+
+## Tabla 2. Descriptivos y descomposición de varianza
+
+```{r tabla2-descriptivos}
+icc_por_pais <- map_dfr(vars_desc, function(v) {
+  iccs <- map_dbl(sort(unique(mit_an$country)), function(p) {
+    d <- mit_an %>% filter(country == p)
+    icc_var(d[[v]], d$idschool)
+  })
+  tibble(Variable = v,
+         ICC_mediana = median(iccs, na.rm = TRUE),
+         ICC_min     = min(iccs, na.rm = TRUE),
+         ICC_max     = max(iccs, na.rm = TRUE))
+})
+
+tabla2 <- map_dfr(vars_desc, function(v) {
+
+  x  <- mit_an[[v]]
+  ds <- psych::describe(x)
+
+  ## DE within (centrado en la media de escuela) y DE between (medias de
+  ## escuela centradas en la media del país, para excluir la varianza entre países)
+  if (v %in% vars_mod) {
+    sd_w <- sd(mit_an[[paste0(v, "_cwc")]], na.rm = TRUE)
+    medias_esc <- mit_an %>%
+      group_by(country, idschool) %>%
+      summarise(m = first(.data[[paste0(v, "_m")]]), .groups = "drop")
+  } else {
+    sd_w <- mit_an %>%
+      group_by(escuela) %>%
+      mutate(c = .data[[v]] - mean(.data[[v]], na.rm = TRUE)) %>%
+      ungroup() %>% pull(c) %>% sd(na.rm = TRUE)
+    medias_esc <- mit_an %>%
+      group_by(country, idschool) %>%
+      summarise(m = mean(.data[[v]], na.rm = TRUE), .groups = "drop")
+  }
+
+  sd_b <- medias_esc %>%
+    group_by(country) %>% mutate(m = m - mean(m, na.rm = TRUE)) %>%
+    ungroup() %>% pull(m) %>% sd(na.rm = TRUE)
+
+  tibble(
+    Variable     = v,
+    Etiqueta     = etiquetas[[v]],
+    Nivel        = if (v %in% vars_nivel_escuela) "2 (escuela)" else "1 (estudiante)",
+    n            = sum(!is.na(x)),
+    `% perdidos` = fmt(100 * mean(is.na(x)), 1),
+    M            = fmt(mean(x, na.rm = TRUE), 2),
+    DE           = fmt(sd(x, na.rm = TRUE), 2),
+    Min          = fmt(min(x, na.rm = TRUE), 2),
+    Max          = fmt(max(x, na.rm = TRUE), 2),
+    Asimetría    = fmt(ds$skew, 2),
+    Curtosis     = fmt(ds$kurtosis, 2),
+    `DE within`  = fmt(sd_w, 2),
+    `DE between` = fmt(sd_b, 2)
+  )
+}) %>%
+  left_join(icc_por_pais, by = "Variable") %>%
+  mutate(`CCI Mdn [rango]` = paste0(fmt(ICC_mediana, 3), " [",
+                                    fmt(ICC_min, 3), "–", fmt(ICC_max, 3), "]")) %>%
+  select(-ICC_mediana, -ICC_min, -ICC_max)
+
+kable(tabla2,
+      caption = "Tabla 2. Descriptivos de las variables del estudio y descomposición de varianza")
+```
+
+## Tabla 3. Correlaciones de dos niveles
+
+Bajo la diagonal, correlaciones **within-school** (variables centradas en la
+media de la escuela). Sobre la diagonal, correlaciones **between-school**
+(medias de escuela centradas en la media del país). Las variables de nivel
+escuela no tienen varianza within, por lo que su fila y columna inferior
+aparecen vacías (—).
+
+```{r tabla3-correlaciones}
+d_w <- mit_an %>%
+  group_by(escuela) %>%
+  mutate(across(all_of(vars_desc), ~ .x - mean(.x, na.rm = TRUE))) %>%
+  ungroup() %>% select(all_of(vars_desc))
+
+d_b <- mit_an %>%
+  group_by(country, idschool) %>%
+  summarise(across(all_of(vars_desc), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+  group_by(country) %>%
+  mutate(across(all_of(vars_desc), ~ .x - mean(.x, na.rm = TRUE))) %>%
+  ungroup() %>% select(all_of(vars_desc))
+
+r_w <- cor(d_w, use = "pairwise.complete.obs")
+r_b <- cor(d_b, use = "pairwise.complete.obs")
+
+## Las variables de nivel escuela no tienen componente within interpretable
+r_w[vars_nivel_escuela, ] <- NA
+r_w[, vars_nivel_escuela] <- NA
+
+k <- length(vars_desc)
+tabla3 <- matrix("", k, k,
+                 dimnames = list(paste0(seq_len(k), ". ", etiquetas[vars_desc]),
+                                 seq_len(k)))
+for (i in seq_len(k)) for (j in seq_len(k)) {
+  tabla3[i, j] <- if (i == j) {
+    "—"
+  } else {
+    r <- if (i > j) r_w[i, j] else r_b[i, j]
+    if (is.na(r)) "—" else sub("^(-?)0", "\\1", fmt(r, 2))
+  }
+}
+
+tabla3 <- as.data.frame(tabla3) %>% rownames_to_column("Variable")
+
+kable(tabla3,
+      caption = "Tabla 3. Correlaciones within-school (bajo la diagonal) y between-school (sobre la diagonal)")
+```
+
+## Tabla 4. Variables moderadoras por país
+
+```{r tabla4-moderadoras-pais}
+tabla4 <- mit_an %>%
+  group_by(País = country) %>%
+  summarise(across(all_of(vars_mod), ~ m_sd(.x, 2)), .groups = "drop") %>%
+  rename_with(~ ifelse(.x %in% vars_mod, etiquetas[.x], .x))
+
+kable(tabla4,
+      caption = "Tabla 4. Medias (desviaciones estándar) de las variables moderadoras por país")
+```
+
+```{r exportar-descriptivos}
+dir_desc <- "../output/descriptivos"
+if (!dir.exists(dir_desc)) dir.create(dir_desc, recursive = TRUE)
+
+writexl::write_xlsx(
+  list(`T1 Muestra por pais` = tabla1,
+       `T2 Descriptivos`     = tabla2,
+       `T3 Correlaciones`    = tabla3,
+       `T4 Moderadoras pais` = tabla4),
+  path = file.path(dir_desc, "descriptivos_manuscrito.xlsx")
+)
+
+cat("✓ Exportado: descriptivos_manuscrito.xlsx\n")
+```
+
+---
+
+
+## Valores distintos dentro de cada escuela
+
+```{r ic3g13-prueba1}
+vars_ic3 <- c("ic3g13a", "ic3g13b")
+
+valores_por_escuela <- mit_an %>%
+  group_by(country, idschool) %>%
+  summarise(across(all_of(vars_ic3),
+                   ~ n_distinct(.x[!is.na(.x)]),
+                   .names = "{.col}"),
+            .groups = "drop")
+
+prueba1 <- map_dfr(vars_ic3, function(v) {
+  x <- valores_por_escuela[[v]]
+  tibble(
+    Variable               = v,
+    `Escuelas evaluables`  = sum(x > 0),
+    `Con 1 solo valor`     = sum(x == 1),
+    `Con más de 1 valor`   = sum(x > 1),
+    `% con más de 1 valor` = paste0(fmt(100 * sum(x > 1) / sum(x > 0), 1), " %")
+  )
+})
+
+kable(prueba1,
+      caption = "Prueba. Número de valores distintos de la variable dentro de cada escuela")
+```
+
+
 
 ---
 
