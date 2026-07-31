@@ -31,19 +31,18 @@ pacman::p_load(haven, dplyr, tibble, skimr, psych, ggplot2, lme4, rio, stargazer
 ```
 
 ```{r cargar-datos-raw, eval=FALSE, echo=FALSE}
-ICCS_data <- rio::import("data/ICCS_School_Teachers_Students_Europe_LA.dta")
-
-ICCS_subset <- ICCS_data[, c("idstud", "idschool", "idclass", "country",
-                              "S_NISB",
-                              "IC3G13A", "IC3G13B", "S_CIVLRN",
-                              "S_OPDISC", "S_SCHPART", "S_VALPARTS",
-                              "S_ABUSE", "S_STUTREL", "S_INTACT",
-                              "PV1CIV")]
-
-mit_data <- ICCS_subset %>%
-  rename_all(tolower)
-
-save(mit_data, file = "./data/mit_data.Rdata")
+## La base se construye desde los archivos originales del IDB de ICCS 2016
+## (carpeta data/Data), uniendo el cuestionario de estudiante (isg<pais>c3) con
+## el de director (icg<pais>c3) mediante un merge m:1 sobre IDCNTRY + IDSCHOOL.
+##
+## Ver rscripts/00_construir_base.R. Ejecutar desde la raíz del proyecto:
+##   source("rscripts/00_construir_base.R")
+##
+## No usar el archivo ICCS_School_Teachers_Students_Europe_LA.dta: sus bloques
+## de director (IC3G*) y de docentes (IT3G*) están corruptos. Solo 268 de 3.529
+## escuelas tenían el cuestionario de director correcto; el resto coincidía con
+## el valor real a nivel de azar. El nivel estudiante de ese archivo sí era
+## correcto y coincide bit a bit con esta base.
 ```
 
 ```{r cargar-datos}
@@ -112,8 +111,8 @@ vars_desc <- c("pv1civ", "s_nisb", vars_mod)
 etiquetas <- c(
   pv1civ     = "Conocimiento cívico (PV1)",
   s_nisb     = "Nivel socioeconómico (NISB)",
-  ic3g13a    = "Participación cívica en el aula (ítem A)",
-  ic3g13b    = "Participación cívica en el aula (ítem B)",
+  ic3g13a    = "Ed. cívica como asignatura separada",
+  ic3g13b    = "Ed. cívica a cargo de docentes de cs. sociales",
   s_civlrn   = "Aprendizaje cívico en la escuela",
   s_opdisc   = "Apertura a la discusión en el aula",
   s_schpart  = "Participación en la escuela",
@@ -375,7 +374,9 @@ La estimación es **secuencial** y evita cálculos redundantes:
 `var_cwc` = variable individual centrada en la media del grupo (within-school).
 `var_m`   = promedio de escuela (between-school).
 
-> **Nota sobre `ic3g13a` e `ic3g13b`**: estas variables se miden a nivel de escuela (todos los estudiantes de la misma escuela tienen el mismo valor), por lo que el componente within-school (`var_cwc`) es trivialmente cero. En M2 y M3 para estas variables se incluye únicamente `var_m` como predictor between-school, omitiendo `var_cwc`.
+> **Nota sobre `ic3g13a` e `ic3g13b`**: son ítems del cuestionario de director (1 = Sí, 2 = No), medidos a nivel de escuela. Tras el merge correcto con el archivo `icg<pais>c3`, todos los estudiantes de una misma escuela comparten el mismo valor, por lo que el componente within-school (`var_cwc`) es exactamente cero. En M2 y M3 para estas variables se incluye únicamente `var_m` como predictor between-school, omitiendo `var_cwc`. Al estar codificadas 1/2, un coeficiente positivo indica mayor conocimiento cívico en las escuelas que responden **No**.
+>
+> Tres países no administraron `ic3g13a` (BFL, BGR, LTU) y uno no administró `ic3g13b` (EST); en esos casos los modelos M2/M3 de esa variable no se estiman.
 
 ```{r funcion-modelos}
 ## -------------------------------------------------------------------

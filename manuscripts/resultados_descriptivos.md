@@ -54,10 +54,13 @@ clima escolar percibido, y esa varianza limitada acota la potencia disponible
 para detectar moderación de nivel cruzado — un punto que se retoma en la
 discusión de los resultados nulos.
 
-Los dos ítems de participación cívica en el aula (`ic3g13a` e `ic3g13b`)
-muestran el patrón opuesto: su varianza es casi enteramente entre escuelas
-(CCI mediana = 0,95), consistente con que se trata de indicadores de práctica
-escolar y no de percepción individual.
+Los dos ítems sobre cómo se imparte la educación cívica (`ic3g13a`, como
+asignatura separada; `ic3g13b`, a cargo de docentes de ciencias sociales)
+provienen del cuestionario de director y son constantes dentro de la escuela
+por construcción: toda su varianza es entre escuelas (CCI = 1,00). Entre las
+escuelas con información válida, 1.621 de 3.025 (53,6 %) imparten educación
+cívica como asignatura separada y 2.742 de 3.394 (80,8 %) la asignan a
+docentes de ciencias sociales o humanidades.
 
 ## Correlaciones
 
@@ -77,9 +80,10 @@ correlación entre el NSE promedio y el conocimiento cívico promedio de la
 escuela alcanza r = 0,68, lo que expresa la composición socioeconómica como el
 principal ordenador del logro cívico agregado. Los climas escolares también se
 diferencian más nítidamente entre escuelas (apertura a la discusión, r = 0,37;
-valoración de la participación, r = 0,33; abuso, r = −0,23). Los dos ítems de
-participación cívica en el aula no se asocian con el conocimiento cívico en
-ningún nivel (|r| ≤ 0,01).
+valoración de la participación, r = 0,33; abuso, r = −0,23). Los dos ítems
+sobre la organización de la educación cívica no se asocian con el conocimiento
+cívico promedio de la escuela (r = −0,03 y r = 0,02); al ser variables de
+nivel 2 no tienen correlación within.
 
 Las correlaciones entre moderadores a nivel de escuela son de moderadas a
 altas (hasta r = 0,68 entre relaciones estudiante-docente e interacción social
@@ -94,16 +98,40 @@ de incluirlos simultáneamente.
    ponderar. ICCS es una muestra compleja con probabilidades desiguales de
    selección; un revisor va a preguntar. Corresponde al menos reportar los
    descriptivos con `totwgts` (o `senwgt`) y discutirlo en limitaciones.
-2. **`ic3g13a` / `ic3g13b` no son constantes dentro de la escuela.** El script
-   de modelos asume que sí lo son y omite el componente CWC. En los datos, 801
-   de 3.270 escuelas evaluables (24,5 %) tienen más de un valor en `ic3g13a`, y
-   687 de 3.569 (19,2 %) en `ic3g13b`; la CCI es 0,95, no 1,00. Habría que
-   decidir si la variable es de escuela (y agregarla formalmente) o de
-   estudiante (y conservar el CWC). La comprobación completa, con cinco pruebas
-   y un contraste contra una variable de nivel 2 por construcción, está en la
-   sección 3 del HTML (`output/mitigacion_analisis.html`).
-3. **Valores perdidos.** `ic3g13a` tiene 20,9 % de casos perdidos, muy por
-   encima del resto (≤ 1,5 %). Conviene reportarlo y justificar la eliminación
-   por lista, o considerar imputación.
+   `totwgts`, `jkzones` y `jkreps` ya vienen en `mit_data`.
+2. ~~**`ic3g13a` / `ic3g13b` no son constantes dentro de la escuela.**~~
+   **Resuelto, y era más grave de lo que parecía.** El archivo
+   `ICCS_School_Teachers_Students_Europe_LA.dta` que se usaba antes tenía todo
+   el cuestionario de director corrupto, no solo desalineado dentro de la
+   escuela. Comparado contra los archivos originales del IDB, solo 268 de 3.529
+   escuelas (7,6 %) tenían el cuestionario correcto; la escuela mediana
+   coincidía en 47 % de los 104 ítems `IC3G*`, que es exactamente lo esperable
+   por azar. Los valores tampoco corresponden a otra escuela real: no hay
+   permutación que los recupere. El bloque de docentes (`IT3G*`, medias de
+   escuela) está igual de mal (correlación de 0,05 a 0,09 con el valor real).
+   El archivo también traía valores de `ic3g13a` para BFL, BGR y LTU, países
+   que nunca administraron ese ítem.
+
+   Lo que **sí** estaba bien: todo el nivel estudiante. Los 94.603 estudiantes
+   son los mismos y `s_nisb`, las siete escalas `S_*` y `pv1civ` coinciden bit
+   a bit con la base nueva. Es decir, los resultados publicados de los siete
+   moderadores de percepción no cambian; los de `ic3g13a`/`ic3g13b` había que
+   descartarlos por completo.
+
+   La base se reconstruyó desde los archivos originales del IDB con un merge
+   m:1 sobre `IDCNTRY` + `IDSCHOOL` (`rscripts/00_construir_base.R`). Ahora 0
+   de 3.025 escuelas tienen más de un valor en `ic3g13a` y 0 de 3.394 en
+   `ic3g13b`; la CCI es 1,00. Se corrigieron además las etiquetas: no son ítems
+   de "participación cívica en el aula" sino de cómo se imparte la educación
+   cívica.
+3. **Valores perdidos y no administración.** En la muestra analítica `ic3g13a`
+   tiene 16,1 % de perdidos e `ic3g13b` 8,2 %, frente a ≤ 2,1 % en el resto.
+   Se descompone en dos fuentes: (a) tres países no administraron `ic3g13a`
+   (BFL, BGR, LTU) y uno no administró `ic3g13b` (EST), por lo que esos
+   modelos simplemente no se estiman; (b) 5.302 estudiantes (5,6 %) asisten a
+   escuelas cuyo director no respondió el cuestionario, con Estonia como caso
+   extremo (37,1 %). Conviene reportar ambas y justificar la eliminación por
+   lista.
 4. **Un solo valor plausible.** Se usa `pv1civ` en lugar de los cinco PV, lo
-   que subestima el error estándar. Es una limitación reportable.
+   que subestima el error estándar. Es una limitación reportable; `pv1civ` a
+   `pv5civ` ya vienen en `mit_data`, así que la corrección es factible.
