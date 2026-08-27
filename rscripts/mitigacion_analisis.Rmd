@@ -103,10 +103,17 @@ for (v in vars_mod) {
 
 Tablas pensadas para la sección de resultados del manuscrito. Se calculan
 sobre la **muestra analítica**: casos con información válida en la variable
-dependiente (`pv1civ`) y en el predictor principal (`s_nisb`).
+dependiente (`pv1civ`) y en el predictor principal (`s_nisb`), excluidas las
+escuelas con menos de 5 estudiantes (ver Tabla 1b). Es la misma muestra sobre
+la que se estiman todos los modelos multinivel.
 
 ```{r descriptivos-setup}
 vars_desc <- c("pv1civ", "s_nisb", vars_mod)
+
+## ic3g13a/b son dicotómicas (1 = Sí, 2 = No): se describen con frecuencias
+## (Tabla 2b), no con medias y desviaciones. El resto son continuas.
+vars_desc_cont <- setdiff(vars_desc, vars_nivel_escuela)
+vars_mod_cont  <- setdiff(vars_mod,  vars_nivel_escuela)
 
 etiquetas <- c(
   pv1civ     = "Conocimiento cívico (PV1)",
@@ -125,8 +132,26 @@ etiquetas <- c(
 ## ID único de escuela (el mismo idschool se repite entre países)
 mit_data <- mit_data %>% mutate(escuela = paste(country, idschool, sep = "_"))
 
-## Muestra analítica
-mit_an <- mit_data %>% filter(!is.na(pv1civ), !is.na(s_nisb))
+## Muestra analítica: casos con información válida en la dependiente y en el
+## predictor principal. Se conserva sin filtrar (mit_an_full) porque la Tabla 1b
+## documenta sobre ella el criterio de exclusión por tamaño de escuela.
+mit_an_full <- mit_data %>% filter(!is.na(pv1civ), !is.na(s_nisb))
+
+## -------------------------------------------------------------------
+## Exclusión de escuelas con menos de 5 estudiantes: son clusters que no
+## aportan información utilizable a la estimación de la varianza de pendiente
+## (M1b, M3). El tamaño se cuenta sobre la muestra analítica, no sobre la base
+## completa, para que el criterio coincida con lo que efectivamente se modela.
+## -------------------------------------------------------------------
+n_min_escuela <- 5
+
+escuelas_validas <- mit_an_full %>%
+  count(escuela, name = "n_est") %>%
+  filter(n_est >= n_min_escuela) %>%
+  pull(escuela)
+
+## Muestra analítica de trabajo: la usan las Tablas 1-4 y los modelos
+mit_an <- mit_an_full %>% filter(escuela %in% escuelas_validas)
 
 ## Utilidades de formato
 fmt  <- function(x, d = 2) formatC(x, format = "f", digits = d)
@@ -145,8 +170,13 @@ icc_var <- function(x, grupo) {
 }
 
 cat("N total:", nrow(mit_data),
-    "| N muestra analítica:", nrow(mit_an),
-    "| Excluidos:", nrow(mit_data) - nrow(mit_an), "\n")
+    "| N muestra analítica:", nrow(mit_an_full),
+    "| Excluidos por datos faltantes:", nrow(mit_data) - nrow(mit_an_full), "\n")
+cat("Escuelas con <", n_min_escuela, "estudiantes excluidas:",
+    n_distinct(mit_an_full$escuela) - length(escuelas_validas),
+    "(", nrow(mit_an_full) - nrow(mit_an), "casos )\n")
+cat("N muestra de análisis final:", nrow(mit_an),
+    "| Escuelas:", n_distinct(mit_an$escuela), "\n")
 ```
 
 ## Tabla 1. Composición de la muestra por país
@@ -177,10 +207,59 @@ kable(tabla1,
       caption = "Tabla 1. Composición de la muestra y desempeño por país")
 ```
 
+## Tabla 1b. Escuelas excluidas por tamaño insuficiente
+
+Se calcula sobre la muestra analítica **antes** de aplicar el criterio de
+exclusión, ya que su función es justificarlo.
+
+```{r tabla1b-tamano-escuela}
+tam_escuela <- mit_an_full %>% count(country, escuela, name = "n_est")
+
+resumen_tam <- function(d) {
+  tibble(
+    Escuelas    = nrow(d),
+    `< 5 est.`  = sum(d$n_est < 5),
+    `% < 5`     = fmt(100 * mean(d$n_est < 5), 1),
+    `< 10 est.` = sum(d$n_est < 10),
+    `% < 10`    = fmt(100 * mean(d$n_est < 10), 1),
+    `< 20 est.` = sum(d$n_est < 20),
+    `% < 20`    = fmt(100 * mean(d$n_est < 20), 1),
+    Mediana     = median(d$n_est),
+    Rango       = paste0(min(d$n_est), "–", max(d$n_est))
+  )
+}
+
+tabla1b <- tam_escuela %>%
+  group_by(País = country) %>%
+  group_modify(~ resumen_tam(.x)) %>%
+  ungroup() %>%
+  arrange(desc(`< 5 est.`)) %>%
+  bind_rows(bind_cols(tibble(País = "Total"), resumen_tam(tam_escuela)))
+
+kable(tabla1b,
+      caption = "Tabla 1b. Tamaño de las escuelas y criterio de exclusión")
+```
+
+Las escuelas con menos de `r n_min_escuela` estudiantes son
+`r sum(tam_escuela$n_est < n_min_escuela)` de `r nrow(tam_escuela)`
+(`r fmt(100 * mean(tam_escuela$n_est < n_min_escuela), 1)` %) y concentran
+`r sum(tam_escuela$n_est[tam_escuela$n_est < n_min_escuela])` casos, un
+`r fmt(100 * sum(tam_escuela$n_est[tam_escuela$n_est < n_min_escuela]) / nrow(mit_an_full), 2)` %
+de la muestra. **Se excluyen del análisis**: con 1 a 4 estudiantes no aportan
+información utilizable a la estimación de la varianza de pendiente entre
+escuelas (M1b, M3), que es el parámetro central del estudio.
+
+La pérdida es desigual entre países pero moderada en todos: el máximo es México
+(15 de 213 escuelas, 7,0 %), seguido de Rusia, Estonia, Lituania y Letonia; en
+13 países no se excluye ninguna. Las tablas siguientes y todos los modelos
+multinivel se calculan ya sobre la muestra filtrada
+(`r format(nrow(mit_an), big.mark = ".", decimal.mark = ",")` estudiantes en
+`r format(n_distinct(mit_an$escuela), big.mark = ".", decimal.mark = ",")` escuelas).
+
 ## Tabla 2. Descriptivos y descomposición de varianza
 
 ```{r tabla2-descriptivos}
-icc_por_pais <- map_dfr(vars_desc, function(v) {
+icc_por_pais <- map_dfr(vars_desc_cont, function(v) {
   iccs <- map_dbl(sort(unique(mit_an$country)), function(p) {
     d <- mit_an %>% filter(country == p)
     icc_var(d[[v]], d$idschool)
@@ -191,7 +270,7 @@ icc_por_pais <- map_dfr(vars_desc, function(v) {
          ICC_max     = max(iccs, na.rm = TRUE))
 })
 
-tabla2 <- map_dfr(vars_desc, function(v) {
+tabla2 <- map_dfr(vars_desc_cont, function(v) {
 
   x  <- mit_an[[v]]
   ds <- psych::describe(x)
@@ -239,8 +318,53 @@ tabla2 <- map_dfr(vars_desc, function(v) {
   select(-ICC_mediana, -ICC_min, -ICC_max)
 
 kable(tabla2,
-      caption = "Tabla 2. Descriptivos de las variables del estudio y descomposición de varianza")
+      caption = "Tabla 2. Descriptivos de las variables continuas y descomposición de varianza")
 ```
+
+## Tabla 2b. Variables dicotómicas de nivel escuela
+
+`ic3g13a` e `ic3g13b` son ítems del cuestionario de director codificados
+1 = Sí, 2 = No. Al ser dicotómicos se describen con frecuencias, no con medias
+y desviaciones. Los porcentajes se calculan **sobre escuelas**, que es la
+unidad en que se mide la variable: cada escuela aporta una respuesta,
+independientemente de cuántos estudiantes tenga.
+
+```{r tabla2b-dicotomicas}
+## Una fila por escuela: las variables son constantes dentro del cluster
+esc_dic <- mit_an %>%
+  group_by(País = country, escuela) %>%
+  summarise(across(all_of(vars_nivel_escuela), first), .groups = "drop")
+
+## "—" para los países que no administraron el ítem (BFL, BGR, LTU en ic3g13a;
+## EST en ic3g13b), en lugar de un NaN
+resumen_dic <- function(d) {
+  map_dfc(vars_nivel_escuela, function(v) {
+    x   <- d[[v]][!is.na(d[[v]])]
+    hay <- length(x) > 0
+    df  <- tibble(n   = if (hay) as.character(length(x)) else "—",
+                  pct = if (hay) paste0(fmt(100 * mean(x == 1), 1), " %") else "—")
+    names(df) <- paste0(v, c(": escuelas", ": % Sí"))
+    df
+  })
+}
+
+tabla2b <- esc_dic %>%
+  group_by(País) %>%
+  group_modify(~ resumen_dic(.x)) %>%
+  ungroup() %>%
+  bind_rows(bind_cols(tibble(País = "Total"), resumen_dic(esc_dic)))
+
+kable(tabla2b,
+      caption = "Tabla 2b. Porcentaje de escuelas que responden Sí, por país")
+```
+
+`ic3g13a` = `r etiquetas[["ic3g13a"]]`.
+`ic3g13b` = `r etiquetas[["ic3g13b"]]`.
+Un `—` indica que el país no administró ese ítem.
+
+En los modelos M2 y M3 estas variables conservan su codificación original
+(1 = Sí, 2 = No), por lo que un coeficiente positivo indica mayor conocimiento
+cívico en las escuelas que responden **No**.
 
 ## Tabla 3. Correlaciones de dos niveles
 
@@ -248,7 +372,10 @@ Bajo la diagonal, correlaciones **within-school** (variables centradas en la
 media de la escuela). Sobre la diagonal, correlaciones **between-school**
 (medias de escuela centradas en la media del país). Las variables de nivel
 escuela no tienen varianza within, por lo que su fila y columna inferior
-aparecen vacías (—).
+aparecen vacías (—). Para `ic3g13a` e `ic3g13b`, las correlaciones
+between-school son punto-biseriales; al estar codificadas 1 = Sí / 2 = No, un
+coeficiente positivo indica un valor más alto en las escuelas que responden
+**No**.
 
 ```{r tabla3-correlaciones}
 d_w <- mit_an %>%
@@ -289,16 +416,18 @@ kable(tabla3,
       caption = "Tabla 3. Correlaciones within-school (bajo la diagonal) y between-school (sobre la diagonal)")
 ```
 
-## Tabla 4. Variables moderadoras por país
+## Tabla 4. Variables moderadoras continuas por país
+
+Las dos moderadoras dicotómicas se desglosan por país en la Tabla 2b.
 
 ```{r tabla4-moderadoras-pais}
 tabla4 <- mit_an %>%
   group_by(País = country) %>%
-  summarise(across(all_of(vars_mod), ~ m_sd(.x, 2)), .groups = "drop") %>%
-  rename_with(~ ifelse(.x %in% vars_mod, etiquetas[.x], .x))
+  summarise(across(all_of(vars_mod_cont), ~ m_sd(.x, 2)), .groups = "drop") %>%
+  rename_with(~ ifelse(.x %in% vars_mod_cont, etiquetas[.x], .x))
 
 kable(tabla4,
-      caption = "Tabla 4. Medias (desviaciones estándar) de las variables moderadoras por país")
+      caption = "Tabla 4. Medias (desviaciones estándar) de las moderadoras continuas por país")
 ```
 
 ```{r exportar-descriptivos}
@@ -307,7 +436,9 @@ if (!dir.exists(dir_desc)) dir.create(dir_desc, recursive = TRUE)
 
 writexl::write_xlsx(
   list(`T1 Muestra por pais` = tabla1,
+       `T1b Tamano escuelas` = tabla1b,
        `T2 Descriptivos`     = tabla2,
+       `T2b Dicotomicas`     = tabla2b,
        `T3 Correlaciones`    = tabla3,
        `T4 Moderadoras pais` = tabla4),
   path = file.path(dir_desc, "descriptivos_manuscrito.xlsx")
@@ -318,39 +449,15 @@ cat("✓ Exportado: descriptivos_manuscrito.xlsx\n")
 
 ---
 
-
-## Valores distintos dentro de cada escuela
-
-```{r ic3g13-prueba1}
-vars_ic3 <- c("ic3g13a", "ic3g13b")
-
-valores_por_escuela <- mit_an %>%
-  group_by(country, idschool) %>%
-  summarise(across(all_of(vars_ic3),
-                   ~ n_distinct(.x[!is.na(.x)]),
-                   .names = "{.col}"),
-            .groups = "drop")
-
-prueba1 <- map_dfr(vars_ic3, function(v) {
-  x <- valores_por_escuela[[v]]
-  tibble(
-    Variable               = v,
-    `Escuelas evaluables`  = sum(x > 0),
-    `Con 1 solo valor`     = sum(x == 1),
-    `Con más de 1 valor`   = sum(x > 1),
-    `% con más de 1 valor` = paste0(fmt(100 * sum(x > 1) / sum(x > 0), 1), " %")
-  )
-})
-
-kable(prueba1,
-      caption = "Prueba. Número de valores distintos de la variable dentro de cada escuela")
-```
-
-
-
----
-
 # Modelos multinivel por país y variable moderadora
+
+## Muestra de modelado
+
+Todos los modelos se estiman sobre la **muestra analítica filtrada** (`mit_an`):
+casos con información válida en `pv1civ` y `s_nisb`, excluidas las escuelas con
+menos de `r n_min_escuela` estudiantes (ver Tabla 1b). Los cinco modelos
+comparten exactamente la misma muestra, por lo que sus AIC y BIC son
+directamente comparables entre sí.
 
 ## Lógica de los modelos
 
@@ -560,6 +667,10 @@ extraer_resultados <- function(lista_modelos, pais, var) {
 ## TODOS LOS PAÍSES de la muestra
 ## (para volver a solo Chile: agregar filter(country == "CHL") abajo)
 ##
+## Se usa mit_an (muestra analítica sin las escuelas de menos de 5
+## estudiantes), de modo que los cinco modelos comparten exactamente la
+## misma muestra y sus AIC/BIC son comparables entre sí.
+##
 ## Estrategia secuencial (evita el cálculo redundante):
 ##   1. M0/M1a/M1b se estiman UNA SOLA VEZ por país (no dependen de la
 ##      variable moderadora).
@@ -568,7 +679,7 @@ extraer_resultados <- function(lista_modelos, pais, var) {
 ##      una de las 9 variables moderadoras.
 ## -------------------------------------------------------------------
 
-mit_data_modelo <- mit_data   # sin filtro de país
+mit_data_modelo <- mit_an   # sin filtro de país
 
 paises <- sort(unique(mit_data_modelo$country))
 cat("Países en la muestra:", paste(paises, collapse = ", "), "\n\n")
