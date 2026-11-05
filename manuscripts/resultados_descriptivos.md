@@ -1,137 +1,140 @@
 # Resultados — Análisis descriptivo
 
-*(Borrador para el manuscrito. Las tablas completas están en
-`output/descriptivos/descriptivos_manuscrito.xlsx` y en
-`output/descriptivos/tablas_descriptivas.md`.)*
+*Borrador revisado el 1 de octubre de 2026. Cifras correspondientes a la muestra
+filtrada del análisis actual. Las tablas de referencia son las del informe
+`output/mitigacion_analisis.html`; el análisis también exporta
+`output/descriptivos/descriptivos_manuscrito.xlsx`. La tabla Markdown histórica
+`output/descriptivos/tablas_descriptivas.md` está desactualizada y no debe usarse
+para este borrador. Los resultados son descriptivos sin ponderación.*
 
 ## Muestra
 
-La muestra analítica quedó conformada por 93.383 estudiantes de 8.° grado
-anidados en 3.749 escuelas de 24 sistemas educativos de Europa y América
-Latina que participaron en ICCS 2016. Se excluyeron 1.220 casos (1,3 %) sin
-información válida en el índice nacional de nivel socioeconómico (NISB). El
-tamaño promedio de conglomerado fue de 24,9 estudiantes por escuela, con
-variación importante entre países (desde 17,3 en Estonia hasta 78,0 en Malta),
-lo que otorga potencia suficiente para estimar efectos aleatorios a nivel de
-escuela en todos los sistemas.
+La base completa contiene 94.603 estudiantes en 3.752 escuelas de 24 sistemas
+educativos de Europa, América Latina y Asia que participaron en ICCS 2016.
+Al exigir información válida en conocimiento cívico (`pv1civ`) y nivel
+socioeconómico (`s_nisb`), se excluyeron 1.220 estudiantes y quedaron 93.383
+en 3.749 escuelas. Posteriormente se excluyeron 53 escuelas con menos de cinco
+estudiantes válidos, que reunían 162 casos. La muestra de trabajo final quedó
+conformada por **93.221 estudiantes en 3.696 escuelas**, conservando los 24
+sistemas educativos (Tablas 1 y 1b).
 
-El desempeño medio en conocimiento cívico fue de 521,0 puntos (DE = 100,6),
-con una amplitud de casi 200 puntos entre el sistema con menor y mayor
-promedio (República Dominicana, M = 383,3; Suecia, M = 582,9). El NISB, por
-construcción estandarizado dentro de cada país, presentó medias cercanas a
-cero y desviaciones estándar cercanas a uno en todos los sistemas
-(Tabla 1), lo que hace comparables los coeficientes del NSE entre países.
+El tamaño promedio de escuela en esta muestra fue de 25,2 estudiantes. Los
+promedios por sistema variaron entre 17,4 en Finlandia y 78,0 en Malta. Estos
+tamaños describen la muestra disponible; no constituyen por sí solos una
+evaluación de potencia para detectar interacciones.
+
+El desempeño medio en conocimiento cívico fue de 521,0 puntos (DE = 100,6).
+Los promedios por sistema oscilaron entre 383,3 en República Dominicana y
+587,7 en Dinamarca. El índice nacional de nivel socioeconómico presentó una
+media global de 0,04 y una desviación estándar de 1,00, con medias próximas
+a cero dentro de cada sistema (Tabla 1).
 
 ## Estructura anidada de los datos
 
-El modelo nulo por país (M0) indica que una proporción sustantiva de la
-varianza en conocimiento cívico se ubica entre escuelas: la CCI mediana fue de
-0,22, con un rango amplio (0,064 en Noruega a 0,596 en Países Bajos). Los
-sistemas con mayor segregación escolar del logro cívico son, en general, los
-que combinan selección temprana o alta estratificación (NLD = 0,593;
-BGR = 0,581; HKG = 0,473; PER = 0,464). Esta magnitud justifica el uso de
-modelos multinivel y define el espacio de varianza sobre el cual pueden operar
-los moderadores escolares.
+La CCI del conocimiento cívico calculada en la Tabla 2 mediante modelos nulos
+por sistema y estimación REML tiene una mediana de 0,223 y un rango de 0,064
+a 0,596. Esto indica diferencias importantes en la proporción de varianza
+que se ubica entre escuelas.
 
-## Variables moderadoras: descomposición within/between
+Los modelos M0 de la sección de diagnósticos se estiman por máxima
+verosimilitud, por lo que sus CCI difieren ligeramente de las descriptivas.
+En esos modelos, las CCI son 0,594 en Países Bajos, 0,583 en Bulgaria, 0,479
+en Hong Kong y 0,462 en Perú, frente a 0,064 en Noruega. Estas diferencias
+describen la concentración del desempeño entre escuelas sin identificar sus
+causas institucionales.
 
-La Tabla 2 presenta los descriptivos y la descomposición de varianza de las
-nueve variables de clima escolar. Todas las escalas WLE del cuestionario de
-estudiantes se distribuyen aproximadamente en la métrica internacional
-(M ≈ 50, DE ≈ 10), con asimetría y curtosis dentro de los rangos aceptables
-para estimación por máxima verosimilitud (|asimetría| ≤ 0,24;
-|curtosis| ≤ 1,74).
+## Variables moderadoras: componentes individuales y escolares
 
-El dato central para la estrategia analítica es la magnitud de la CCI de cada
-moderador, ya que la interacción de nivel cruzado se estima sobre el
-componente **between** (el promedio de escuela). Las escalas de percepción
-individual concentran su varianza en el nivel del estudiante: la CCI mediana
-fluctúa entre 0,040 (valoración de la participación) y 0,099 (relaciones
-estudiante-docente). En términos de dispersión, la desviación estándar between
-de estos moderadores es de apenas 3,1 a 3,9 puntos frente a una desviación
-within de 9,0 a 9,4 puntos. Es decir, las escuelas difieren poco entre sí en
-clima escolar percibido, y esa varianza limitada acota la potencia disponible
-para detectar moderación de nivel cruzado — un punto que se retoma en la
-discusión de los resultados nulos.
+Se consideran siete escalas del cuestionario de estudiantes y un ítem del
+cuestionario de director sobre la organización de la educación cívica.
+Las siete escalas individuales presentan medias aproximadamente próximas a
+50 y desviaciones estándar próximas a 10. Sus valores absolutos de asimetría
+no superan 0,24 y los de curtosis no superan 1,74 (Tabla 2).
 
-Los dos ítems sobre cómo se imparte la educación cívica (`ic3g13a`, como
-asignatura separada; `ic3g13b`, a cargo de docentes de ciencias sociales)
-provienen del cuestionario de director y son constantes dentro de la escuela
-por construcción: toda su varianza es entre escuelas (CCI = 1,00). Entre las
-escuelas con información válida, 1.621 de 3.025 (53,6 %) imparten educación
-cívica como asignatura separada y 2.742 de 3.394 (80,8 %) la asignan a
-docentes de ciencias sociales o humanidades.
+En las escalas individuales, la CCI mediana por sistema varía entre 0,040
+para valoración de la participación y 0,099 para relaciones estudiante-docente.
+Las desviaciones estándar del componente entre escuelas, descontando las
+diferencias entre sistemas, varían aproximadamente entre 3,0 y 3,8 puntos;
+las del componente dentro de las escuelas, entre 9,0 y 9,4. La mayor parte de
+la variación se encuentra, por tanto, entre estudiantes de una misma escuela.
+Los modelos de moderación utilizan el promedio escolar de cada escala en la
+interacción con el NSE.
+
+El ítem de director es constante dentro de cada escuela y no tiene un
+componente individual variable. Entre las escuelas de la muestra final con
+información válida, 1.603 de 2.984 (53,7 %) imparten educación cívica como
+asignatura separada (`ic3g13a`; Tabla 2b). En los análisis, el ítem se
+codifica 1 = Sí y 0 = No.
 
 ## Correlaciones
 
-La Tabla 3 presenta la matriz de correlaciones descompuesta por nivel: bajo la
-diagonal, correlaciones within-school (variables centradas en la media de la
-escuela); sobre la diagonal, correlaciones between-school (medias de escuela
-centradas en la media del país).
+La Tabla 3 distingue correlaciones dentro de las escuelas, calculadas con
+variables centradas en la media escolar, y entre escuelas, calculadas con
+promedios escolares centrados en la media de cada sistema. Se utilizan los
+casos disponibles para cada par de variables.
 
-A nivel individual, el NSE se asocia con el conocimiento cívico en la magnitud
-esperada (r = 0,23), mientras que los moderadores muestran asociaciones
-positivas pero modestas con el resultado (r = 0,09 a 0,19), con la excepción
-del abuso escolar, negativa (r = −0,08), y la interacción social en el aula,
-prácticamente nula (r = −0,02).
+A nivel individual, la correlación entre NSE y conocimiento cívico es de
+0,23. Las correlaciones del conocimiento cívico con aprendizaje cívico,
+apertura a la discusión, participación, valoración de la participación y
+relaciones estudiante-docente son positivas y oscilan entre 0,09 y 0,19.
+La correlación con abuso escolar es negativa (−0,08), mientras que la
+correlación con interacción social en el aula es cercana a cero (−0,02).
 
-A nivel de escuela las asociaciones son marcadamente más fuertes: la
-correlación entre el NSE promedio y el conocimiento cívico promedio de la
-escuela alcanza r = 0,68, lo que expresa la composición socioeconómica como el
-principal ordenador del logro cívico agregado. Los climas escolares también se
-diferencian más nítidamente entre escuelas (apertura a la discusión, r = 0,37;
-valoración de la participación, r = 0,33; abuso, r = −0,23). Los dos ítems
-sobre la organización de la educación cívica no se asocian con el conocimiento
-cívico promedio de la escuela (r = −0,03 y r = 0,02); al ser variables de
-nivel 2 no tienen correlación within.
+Entre escuelas, la correlación entre NSE promedio y conocimiento cívico
+promedio alcanza 0,69. Las correlaciones del desempeño con apertura a la
+discusión, valoración de la participación y abuso escolar son 0,38, 0,34 y
+−0,25, respectivamente. La correlación con el ítem de organización de la
+educación cívica es cercana a cero (0,03). Este ítem no tiene correlaciones
+dentro de las escuelas porque no varía en ese nivel.
 
-Las correlaciones entre moderadores a nivel de escuela son de moderadas a
-altas (hasta r = 0,68 entre relaciones estudiante-docente e interacción social
-en el aula), razón por la cual cada moderador se modela por separado en lugar
-de incluirlos simultáneamente.
+Las correlaciones entre moderadores a nivel escolar alcanzan 0,68 entre
+relaciones estudiante-docente e interacción social en el aula. La estrategia
+implementada analiza cada moderador por separado; sus coeficientes no
+representan asociaciones ajustadas simultáneamente por los otros moderadores.
 
----
+## Notas de revisión metodológica y trazabilidad (no van en el manuscrito)
 
-## Notas pendientes (no van en el manuscrito)
-
-1. **Ponderadores muestrales.** Los descriptivos y los modelos están sin
-   ponderar. ICCS es una muestra compleja con probabilidades desiguales de
-   selección; un revisor va a preguntar. Corresponde al menos reportar los
-   descriptivos con `totwgts` (o `senwgt`) y discutirlo en limitaciones.
-   `totwgts`, `jkzones` y `jkreps` ya vienen en `mit_data`.
-2. ~~**`ic3g13a` / `ic3g13b` no son constantes dentro de la escuela.**~~
-   **Resuelto, y era más grave de lo que parecía.** El archivo
-   `ICCS_School_Teachers_Students_Europe_LA.dta` que se usaba antes tenía todo
-   el cuestionario de director corrupto, no solo desalineado dentro de la
-   escuela. Comparado contra los archivos originales del IDB, solo 268 de 3.529
-   escuelas (7,6 %) tenían el cuestionario correcto; la escuela mediana
-   coincidía en 47 % de los 104 ítems `IC3G*`, que es exactamente lo esperable
-   por azar. Los valores tampoco corresponden a otra escuela real: no hay
-   permutación que los recupere. El bloque de docentes (`IT3G*`, medias de
-   escuela) está igual de mal (correlación de 0,05 a 0,09 con el valor real).
-   El archivo también traía valores de `ic3g13a` para BFL, BGR y LTU, países
-   que nunca administraron ese ítem.
-
-   Lo que **sí** estaba bien: todo el nivel estudiante. Los 94.603 estudiantes
-   son los mismos y `s_nisb`, las siete escalas `S_*` y `pv1civ` coinciden bit
-   a bit con la base nueva. Es decir, los resultados publicados de los siete
-   moderadores de percepción no cambian; los de `ic3g13a`/`ic3g13b` había que
-   descartarlos por completo.
-
-   La base se reconstruyó desde los archivos originales del IDB con un merge
-   m:1 sobre `IDCNTRY` + `IDSCHOOL` (`rscripts/00_construir_base.R`). Ahora 0
-   de 3.025 escuelas tienen más de un valor en `ic3g13a` y 0 de 3.394 en
-   `ic3g13b`; la CCI es 1,00. Se corrigieron además las etiquetas: no son ítems
-   de "participación cívica en el aula" sino de cómo se imparte la educación
-   cívica.
-3. **Valores perdidos y no administración.** En la muestra analítica `ic3g13a`
-   tiene 16,1 % de perdidos e `ic3g13b` 8,2 %, frente a ≤ 2,1 % en el resto.
-   Se descompone en dos fuentes: (a) tres países no administraron `ic3g13a`
-   (BFL, BGR, LTU) y uno no administró `ic3g13b` (EST), por lo que esos
-   modelos simplemente no se estiman; (b) 5.302 estudiantes (5,6 %) asisten a
-   escuelas cuyo director no respondió el cuestionario, con Estonia como caso
-   extremo (37,1 %). Conviene reportar ambas y justificar la eliminación por
-   lista.
-4. **Un solo valor plausible.** Se usa `pv1civ` en lugar de los cinco PV, lo
-   que subestima el error estándar. Es una limitación reportable; `pv1civ` a
-   `pv5civ` ya vienen en `mit_data`, así que la corrección es factible.
+1. **Muestra de cada modelo.** Los 93.221 casos constituyen la muestra de
+   partida. Los modelos base comparten la muestra de su sistema; M2/M3 pueden
+   perder casos adicionales por datos faltantes del moderador. El código no
+   vuelve a aplicar el mínimo de cinco estudiantes tras esas pérdidas. Antes
+   de comparar AIC/BIC entre modelos base y moderadores, comprobar y, cuando
+   corresponda, igualar sus muestras efectivas.
+2. **Diseño muestral y valores plausibles.** Los resultados actuales no
+   incorporan ponderadores ni replicación del diseño muestral y utilizan solo
+   `pv1civ`. La base contiene `totwgts`, `jkzones`, `jkreps` y los cinco valores
+   plausibles. Falta incorporarlos antes de cerrar la inferencia estadística.
+3. **Datos faltantes.** En la muestra final, `ic3g13a` tiene 16,1 % de datos
+   faltantes a nivel de estudiante; las siete escalas individuales tienen
+   entre 0,8 % y 1,5 %. La documentación del proyecto identifica no
+   administración de `ic3g13a` en BFL, BGR y LTU. Estos casos deben
+   distinguirse de la falta de respuesta. La base analítica reducida no basta
+   por sí sola para atribuir toda ausencia de este ítem a la falta de
+   respuesta del cuestionario completo de director. El ítem `ic3g13b` se
+   excluyó del análisis por su escasa variabilidad.
+4. **Selección e interpretación de las interacciones.** En la corrida
+   anterior, con `s_nisb` sin separar, BFL, MEX, PER y RUS pasaban el LRT de
+   pendiente aleatoria; el LRT no filtra. El Rmd ya separa el NSE en
+   `s_nisb_cwc` y `s_nisb_m`: M3 usa `(s_nisb_cwc | idschool)` y M2/M4 usan
+   `(1 | idschool)`. Falta reestimar y actualizar estas cifras. Se clasifican 189
+   interacciones de M3 y 168 de M4, con el p sin ajustar; por ahora no se
+   aplica corrección por comparaciones múltiples. El ítem de director se
+   recodificó 1 = Sí, 0 = No. Las
+   categorías automáticas requieren revisión según la dirección de cada
+   escala, en particular `s_abuse`. «Reproducción» es una etiqueta del
+   programa para resultados no significativos, no una conclusión sustantiva
+   demostrada.
+5. **Corrección de la base.** La revisión previa documentó errores en los
+   bloques de director y docentes del antiguo archivo
+   `ICCS_School_Teachers_Students_Europe_LA.dta`. El script
+   `rscripts/00_construir_base.R` reconstruye la base desde los SAS originales
+   mediante `IDCNTRY` + `IDSCHOOL` y verifica que los ítems de director sean
+   constantes por escuela. Las tablas de la base antigua no son referencias
+   válidas para esos ítems.
+6. **Procedencia de las cifras.** Esta revisión utilizó las tablas del HTML
+   guardado; se comprobaron directamente en `mit_data.Rdata` los tamaños de
+   muestra, la media y DE de conocimiento cívico, las frecuencias de los ítems
+   de director y las correlaciones entre escuelas con conocimiento cívico.
+   No se reestimaron los modelos. Tras modificar el análisis, se deben regenerar
+   las salidas y sincronizar este borrador. La tabla Markdown histórica no se
+   regenera con el R Markdown actual.

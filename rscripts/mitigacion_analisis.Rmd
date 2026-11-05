@@ -54,15 +54,16 @@ load("../data/mit_data.Rdata")
 # Preparación de datos
 
 ```{r variables-moderadoras}
-## Vector con las 9 variables moderadoras
-vars_mod <- c("ic3g13a", "ic3g13b", "s_civlrn",
+## Vector con las 8 variables moderadoras
+## (ic3g13b se excluyó del análisis por su escasa variabilidad)
+vars_mod <- c("ic3g13a", "s_civlrn",
               "s_opdisc", "s_schpart", "s_valparts",
               "s_abuse", "s_stutrel", "s_intact")
 
 ## Variables medidas a nivel de escuela (todos los estudiantes de la misma
 ## escuela comparten el mismo valor, por lo que el CWC es trivialmente cero
 ## y no tiene sentido incluirlo como predictor within-school)
-vars_nivel_escuela <- c("ic3g13a", "ic3g13b")
+vars_nivel_escuela <- c("ic3g13a")
 ```
 
 ```{r promedios-y-cwc}
@@ -70,7 +71,8 @@ vars_nivel_escuela <- c("ic3g13a", "ic3g13b")
 ## Para cada variable moderadora se calculan:
 ##   _m   : promedio de escuela (between-school) → parte nivel 2
 ##   _cwc : valor individual centrado en la media del grupo (within-school)
-##          → parte nivel 1, ortogonal a _m para evitar multicolinealidad
+##          → parte nivel 1, desviación respecto del promedio escolar
+## Los promedios se calculan sobre la base completa, antes de filtrar casos.
 ##
 ## IMPORTANTE: se usa country + idschool como ID único de escuela
 ## ya que el mismo idschool puede existir en distintos países
@@ -78,6 +80,13 @@ vars_nivel_escuela <- c("ic3g13a", "ic3g13b")
 
 ## Limpiar columnas _m y _cwc que puedan venir de una corrida anterior en el .Rdata
 mit_data <- mit_data %>% select(-matches("_m$|_cwc$"))
+
+## Ítems de director: 1 = Sí, 0 = No (original IEA: 1 = Sí, 2 = No), para que
+## un coeficiente positivo se refiera a las escuelas que responden Sí.
+## Idempotente: volver a correr el chunk no altera los valores.
+mit_data <- mit_data %>%
+  mutate(across(all_of(vars_nivel_escuela),
+                ~ case_when(.x == 1 ~ 1, .x %in% c(0, 2) ~ 0, TRUE ~ NA_real_)))
 
 promedios_escuela <- mit_data %>%
   group_by(country, idschool) %>%
@@ -104,13 +113,15 @@ for (v in vars_mod) {
 Tablas pensadas para la sección de resultados del manuscrito. Se calculan
 sobre la **muestra analítica**: casos con información válida en la variable
 dependiente (`pv1civ`) y en el predictor principal (`s_nisb`), excluidas las
-escuelas con menos de 5 estudiantes (ver Tabla 1b). Es la misma muestra sobre
-la que se estiman todos los modelos multinivel.
+escuelas con menos de 5 estudiantes (ver Tabla 1b). Esta es la muestra de
+partida de los modelos multinivel; M2/M3/M4 pueden excluir casos adicionales
+por información faltante en cada moderador. Los resultados actuales no
+incorporan ponderadores y utilizan solo el primer valor plausible.
 
 ```{r descriptivos-setup}
 vars_desc <- c("pv1civ", "s_nisb", vars_mod)
 
-## ic3g13a/b son dicotómicas (1 = Sí, 2 = No): se describen con frecuencias
+## ic3g13a es dicotómica (1 = Sí, 0 = No): se describe con frecuencias
 ## (Tabla 2b), no con medias y desviaciones. El resto son continuas.
 vars_desc_cont <- setdiff(vars_desc, vars_nivel_escuela)
 vars_mod_cont  <- setdiff(vars_mod,  vars_nivel_escuela)
@@ -119,7 +130,6 @@ etiquetas <- c(
   pv1civ     = "Conocimiento cívico (PV1)",
   s_nisb     = "Nivel socioeconómico (NISB)",
   ic3g13a    = "Ed. cívica como asignatura separada",
-  ic3g13b    = "Ed. cívica a cargo de docentes de cs. sociales",
   s_civlrn   = "Aprendizaje cívico en la escuela",
   s_opdisc   = "Apertura a la discusión en el aula",
   s_schpart  = "Participación en la escuela",
@@ -138,10 +148,10 @@ mit_data <- mit_data %>% mutate(escuela = paste(country, idschool, sep = "_"))
 mit_an_full <- mit_data %>% filter(!is.na(pv1civ), !is.na(s_nisb))
 
 ## -------------------------------------------------------------------
-## Exclusión de escuelas con menos de 5 estudiantes: son clusters que no
-## aportan información utilizable a la estimación de la varianza de pendiente
-## (M1b, M3). El tamaño se cuenta sobre la muestra analítica, no sobre la base
-## completa, para que el criterio coincida con lo que efectivamente se modela.
+## Exclusión de escuelas con menos de 5 estudiantes: criterio de trabajo
+## para limitar la presencia de grupos pequeños al estimar pendientes aleatorias.
+## El tamaño se cuenta después de excluir faltantes en pv1civ y s_nisb.
+## No se vuelve a aplicar tras las pérdidas específicas de cada moderador.
 ## -------------------------------------------------------------------
 n_min_escuela <- 5
 
@@ -152,6 +162,15 @@ escuelas_validas <- mit_an_full %>%
 
 ## Muestra analítica de trabajo: la usan las Tablas 1-4 y los modelos
 mit_an <- mit_an_full %>% filter(escuela %in% escuelas_validas)
+
+## NSE separado en componentes, calculado sobre la muestra analítica:
+##   s_nisb_m   : promedio de escuela (between-school)
+##   s_nisb_cwc : desviación del estudiante respecto de su escuela (within)
+mit_an <- mit_an %>%
+  group_by(escuela) %>%
+  mutate(s_nisb_m   = mean(s_nisb),
+         s_nisb_cwc = s_nisb - s_nisb_m) %>%
+  ungroup()
 
 ## Utilidades de formato
 fmt  <- function(x, d = 2) formatC(x, format = "f", digits = d)
@@ -245,14 +264,15 @@ Las escuelas con menos de `r n_min_escuela` estudiantes son
 (`r fmt(100 * mean(tam_escuela$n_est < n_min_escuela), 1)` %) y concentran
 `r sum(tam_escuela$n_est[tam_escuela$n_est < n_min_escuela])` casos, un
 `r fmt(100 * sum(tam_escuela$n_est[tam_escuela$n_est < n_min_escuela]) / nrow(mit_an_full), 2)` %
-de la muestra. **Se excluyen del análisis**: con 1 a 4 estudiantes no aportan
-información utilizable a la estimación de la varianza de pendiente entre
-escuelas (M1b, M3), que es el parámetro central del estudio.
+de la muestra. **Se excluyen del análisis** como criterio de trabajo para
+limitar la presencia de grupos pequeños en los modelos con pendiente
+aleatoria. Este umbral no garantiza por sí solo potencia suficiente y su
+sensibilidad queda pendiente de evaluación.
 
 La pérdida es desigual entre países pero moderada en todos: el máximo es México
 (15 de 213 escuelas, 7,0 %), seguido de Rusia, Estonia, Lituania y Letonia; en
-13 países no se excluye ninguna. Las tablas siguientes y todos los modelos
-multinivel se calculan ya sobre la muestra filtrada
+13 países no se excluye ninguna. Las tablas siguientes se calculan sobre la
+muestra filtrada, que también es el punto de partida de los modelos multinivel
 (`r format(nrow(mit_an), big.mark = ".", decimal.mark = ",")` estudiantes en
 `r format(n_distinct(mit_an$escuela), big.mark = ".", decimal.mark = ",")` escuelas).
 
@@ -321,11 +341,11 @@ kable(tabla2,
       caption = "Tabla 2. Descriptivos de las variables continuas y descomposición de varianza")
 ```
 
-## Tabla 2b. Variables dicotómicas de nivel escuela
+## Tabla 2b. Variable dicotómica de nivel escuela
 
-`ic3g13a` e `ic3g13b` son ítems del cuestionario de director codificados
-1 = Sí, 2 = No. Al ser dicotómicos se describen con frecuencias, no con medias
-y desviaciones. Los porcentajes se calculan **sobre escuelas**, que es la
+`ic3g13a` es un ítem del cuestionario de director, recodificado
+como 1 = Sí, 0 = No (la codificación original de la IEA es 1 = Sí, 2 = No).
+Al ser dicotómico se describe con frecuencias, no con media y desviación. Los porcentajes se calculan **sobre escuelas**, que es la
 unidad en que se mide la variable: cada escuela aporta una respuesta,
 independientemente de cuántos estudiantes tenga.
 
@@ -335,8 +355,8 @@ esc_dic <- mit_an %>%
   group_by(País = country, escuela) %>%
   summarise(across(all_of(vars_nivel_escuela), first), .groups = "drop")
 
-## "—" para los países que no administraron el ítem (BFL, BGR, LTU en ic3g13a;
-## EST en ic3g13b), en lugar de un NaN
+## "—" para los países que no administraron el ítem (BFL, BGR, LTU en
+## ic3g13a), en lugar de un NaN
 resumen_dic <- function(d) {
   map_dfc(vars_nivel_escuela, function(v) {
     x   <- d[[v]][!is.na(d[[v]])]
@@ -359,12 +379,11 @@ kable(tabla2b,
 ```
 
 `ic3g13a` = `r etiquetas[["ic3g13a"]]`.
-`ic3g13b` = `r etiquetas[["ic3g13b"]]`.
-Un `—` indica que el país no administró ese ítem.
+Un `—` indica que el país no administró el ítem.
 
-En los modelos M2 y M3 estas variables conservan su codificación original
-(1 = Sí, 2 = No), por lo que un coeficiente positivo indica mayor conocimiento
-cívico en las escuelas que responden **No**.
+En los modelos M2 y M3 esta variable se usa con la codificación 1 = Sí,
+0 = No, por lo que un coeficiente positivo indica un valor más alto en las
+escuelas que responden **Sí**.
 
 ## Tabla 3. Correlaciones de dos niveles
 
@@ -372,10 +391,10 @@ Bajo la diagonal, correlaciones **within-school** (variables centradas en la
 media de la escuela). Sobre la diagonal, correlaciones **between-school**
 (medias de escuela centradas en la media del país). Las variables de nivel
 escuela no tienen varianza within, por lo que su fila y columna inferior
-aparecen vacías (—). Para `ic3g13a` e `ic3g13b`, las correlaciones
-between-school son punto-biseriales; al estar codificadas 1 = Sí / 2 = No, un
+aparecen vacías (—). Para `ic3g13a`, las correlaciones
+between-school son punto-biseriales; al estar codificada 1 = Sí / 0 = No, un
 coeficiente positivo indica un valor más alto en las escuelas que responden
-**No**.
+**Sí**.
 
 ```{r tabla3-correlaciones}
 d_w <- mit_an %>%
@@ -453,45 +472,92 @@ cat("✓ Exportado: descriptivos_manuscrito.xlsx\n")
 
 ## Muestra de modelado
 
-Todos los modelos se estiman sobre la **muestra analítica filtrada** (`mit_an`):
+Todos los modelos parten de la **muestra analítica filtrada** (`mit_an`):
 casos con información válida en `pv1civ` y `s_nisb`, excluidas las escuelas con
-menos de `r n_min_escuela` estudiantes (ver Tabla 1b). Los cinco modelos
-comparten exactamente la misma muestra, por lo que sus AIC y BIC son
-directamente comparables entre sí.
+menos de `r n_min_escuela` estudiantes (ver Tabla 1b). M0, M1a y M1b comparten
+la muestra de cada país. M2, M3 y M4 de un mismo moderador utilizan sus casos
+completos, que pueden ser menos que los de los modelos base o distintos de
+los de otros moderadores. Antes de comparar AIC/BIC entre esos grupos de
+modelos se debe comprobar y, cuando corresponda, igualar la muestra efectiva.
+El filtro de tamaño escolar no se repite después de las exclusiones por
+datos faltantes del moderador.
 
 ## Lógica de los modelos
 
-La estimación es **secuencial** y evita cálculos redundantes:
+La estimación evita cálculos redundantes:
 
 1. **Modelos base por país** (M0, M1a, M1b): solo dependen de `pv1civ` y
-   `s_nisb`, por lo que se estiman **una sola vez por país**, no por variable.
-2. **Decisión por país** (LRT M1b vs M1a): si la pendiente de NSE varía entre
-   escuelas, el país justifica buscar moderadores escolares.
-3. **Modelos moderadores por variable** (M2, M3): se estiman **solo en los
-   países que pasan el LRT**, para cada una de las 9 variables moderadoras.
+   del NSE, por lo que se estiman **una sola vez por país**, no por variable.
+2. **Diagnóstico por país** (LRT M1b vs M1a): se informa si la pendiente de
+   NSE dentro de la escuela (`s_nisb_cwc`) varía entre escuelas, pero
+   **no filtra** la estimación posterior. Una
+   interacción puede existir aunque la varianza de la pendiente aleatoria no
+   sea significativa, y esa prueba tiene baja potencia.
+3. **Modelos moderadores por variable** (M2, M3, M4): se estiman **en todos
+   los países**, para cada una de las 8 variables moderadoras (M4 solo para
+   las 7 escalas individuales).
+
+El NSE se separa en su componente dentro de la escuela (`s_nisb_cwc`) y su
+promedio escolar (`s_nisb_m`). `s_nisb_cwc` estima la brecha por NSE dentro de
+la escuela y `s_nisb_m` la asociación entre escuelas; el efecto contextual del
+NSE es la diferencia `β(s_nisb_m) − β(s_nisb_cwc)`. Incluir `s_nisb_m` controla
+la composición socioeconómica de la escuela en los efectos de los moderadores.
+
+Solo M3 incluye la pendiente aleatoria `(s_nisb_cwc | idschool)`, porque su
+interacción es entre niveles: omitir la pendiente aleatoria del predictor de
+nivel 1 que participa en una interacción entre niveles tiende a subestimar los
+errores estándar (Heisig y Schaeffer, 2019). M2 y M4 usan intercepto
+aleatorio; la interacción de M4 es dentro del mismo nivel. Por eso la
+comparación M2→M3 cambia tanto la parte fija como la aleatoria y no aísla el
+aporte de la interacción. En los países con poca variación de la pendiente,
+el ajuste de M3 puede ser singular (varianza de la pendiente cercana a 0); la
+columna `Singular` de las salidas lo registra (en M2 y M4 será casi siempre
+FALSE).
 
 | Modelo | Nivel | Especificación | Propósito |
 |--------|-------|---------------|-----------|
 | **M0** | país | `pv1civ ~ 1 + (1 \| idschool)` | ICC: ¿hay varianza entre escuelas? |
-| **M1a** | país | `pv1civ ~ s_nisb + (1 \| idschool)` | Efecto del NSE (intercepto aleatorio) |
-| **M1b** | país | `pv1civ ~ s_nisb + (s_nisb \| idschool)` | ¿El efecto del NSE varía entre escuelas? |
-| **M2** | variable | `pv1civ ~ s_nisb + var_cwc + var_m + (s_nisb \| idschool)` | ¿El contexto escolar explica esa variación? |
-| **M3** | variable | `pv1civ ~ s_nisb + var_cwc + var_m + s_nisb:var_m + (s_nisb \| idschool)` | ¿El contexto escolar **modera** el efecto del NSE? |
+| **M1a** | país | `pv1civ ~ s_nisb_cwc + s_nisb_m + (1 \| idschool)` | Efecto del NSE dentro y entre escuelas (intercepto aleatorio) |
+| **M1b** | país | `pv1civ ~ s_nisb_cwc + s_nisb_m + (s_nisb_cwc \| idschool)` | ¿El efecto del NSE dentro de la escuela varía entre escuelas? |
+| **M2** | variable | `pv1civ ~ s_nisb_cwc + s_nisb_m + var_cwc + var_m + (1 \| idschool)` | Asociaciones individuales y escolares del moderador |
+| **M3** | variable | `pv1civ ~ s_nisb_cwc + s_nisb_m + var_cwc + var_m + s_nisb_cwc:var_m + (s_nisb_cwc \| idschool)` | ¿El contexto escolar **modera** la brecha por NSE dentro de la escuela? |
+| **M4** | variable | `pv1civ ~ s_nisb_cwc + s_nisb_m + var_cwc + var_m + s_nisb_cwc:var_cwc + (1 \| idschool)` | ¿La percepción individual **modera** la brecha por NSE dentro de la escuela? |
 
 `var_cwc` = variable individual centrada en la media del grupo (within-school).
 `var_m`   = promedio de escuela (between-school).
 
-> **Nota sobre `ic3g13a` e `ic3g13b`**: son ítems del cuestionario de director (1 = Sí, 2 = No), medidos a nivel de escuela. Tras el merge correcto con el archivo `icg<pais>c3`, todos los estudiantes de una misma escuela comparten el mismo valor, por lo que el componente within-school (`var_cwc`) es exactamente cero. En M2 y M3 para estas variables se incluye únicamente `var_m` como predictor between-school, omitiendo `var_cwc`. Al estar codificadas 1/2, un coeficiente positivo indica mayor conocimiento cívico en las escuelas que responden **No**.
+`s_nisb_m` y los `var_m` se centran en la media de las escuelas de cada país
+antes de estimar. Así, el efecto principal de `s_nisb_cwc` en M3 corresponde a
+la brecha dentro de una escuela promedio del país; los coeficientes de
+interacción y el ajuste no cambian con este centrado.
+
+> **Nota sobre `ic3g13a`**: es un ítem del cuestionario de director, recodificado como 1 = Sí, 0 = No, medido a nivel de escuela. Tras el merge correcto con el archivo `icg<pais>c3`, todos los estudiantes de una misma escuela comparten el mismo valor, por lo que el componente within-school (`var_cwc`) es exactamente cero. En M2 y M3 para esta variable se incluye únicamente `var_m` como predictor between-school, omitiendo `var_cwc`, y M4 no se estima. Al estar codificada 1/0, un coeficiente positivo de `var_m` indica mayor conocimiento cívico en las escuelas que responden **Sí**, y una interacción positiva indica una pendiente de NSE más pronunciada en esas escuelas.
 >
-> Tres países no administraron `ic3g13a` (BFL, BGR, LTU) y uno no administró `ic3g13b` (EST); en esos casos los modelos M2/M3 de esa variable no se estiman.
+> Tres países no administraron `ic3g13a` (BFL, BGR, LTU); no hay estimaciones M2/M3 disponibles para ese ítem en esos países. El código intenta el ajuste y captura como `NULL` los errores por ausencia de datos.
+>
+> El ítem `ic3g13b` (educación cívica a cargo de docentes de ciencias sociales o humanidades) se excluyó del análisis por su escasa variabilidad.
+
+La clasificación posterior de las interacciones de M3 y M4 utiliza etiquetas
+operativas basadas en el signo y el valor p sin ajustar del coeficiente; por
+ahora no se aplica corrección por comparaciones múltiples. Su
+interpretación requiere considerar que `s_abuse` mide un clima negativo: una
+interacción negativa con abuso indica una brecha menor donde hay más abuso.
+La categoría «Reproducción» indica que la regla del programa no identificó una
+interacción significativa; no demuestra reproducción ni ausencia de
+moderación. Estos modelos estiman asociaciones, no efectos causales.
+
+Queda pendiente incorporar los ponderadores y los cinco valores plausibles, y
+ampliar los diagnósticos de convergencia. La CCI de M0 describe la estructura escolar;
+la columna `ICC` exportada para modelos con pendiente aleatoria requiere una
+revisión de su cálculo e interpretación.
 
 ```{r funcion-modelos}
 ## -------------------------------------------------------------------
 ## Modelos BASE (nivel país): no dependen de la variable moderadora,
 ## por lo que se estiman UNA SOLA VEZ por país.
 ##   M0  : modelo nulo (ICC)
-##   M1a : intercepto aleatorio con NSE
-##   M1b : pendiente aleatoria de NSE
+##   M1a : intercepto aleatorio con NSE (s_nisb_cwc + s_nisb_m)
+##   M1b : pendiente aleatoria de s_nisb_cwc
 ## -------------------------------------------------------------------
 
 estimar_modelos_base <- function(datos) {
@@ -505,13 +571,13 @@ estimar_modelos_base <- function(datos) {
   )
 
   resultados[["M1a"]] <- tryCatch(
-    lmer(pv1civ ~ s_nisb + (1 | idschool),
+    lmer(pv1civ ~ s_nisb_cwc + s_nisb_m + (1 | idschool),
          data = datos, REML = FALSE),
     error = function(e) NULL
   )
 
   resultados[["M1b"]] <- tryCatch(
-    lmer(pv1civ ~ s_nisb + (s_nisb | idschool),
+    lmer(pv1civ ~ s_nisb_cwc + s_nisb_m + (s_nisb_cwc | idschool),
          data = datos, REML = FALSE),
     error = function(e) NULL
   )
@@ -520,17 +586,20 @@ estimar_modelos_base <- function(datos) {
 }
 
 ## -------------------------------------------------------------------
-## Modelos MODERADORES (nivel variable): SOLO se estiman en los países
-## donde el LRT M1b vs M1a confirma la pendiente aleatoria de NSE.
+## Modelos MODERADORES (nivel variable): se estiman en todos los países.
+## Todos incluyen s_nisb_cwc + s_nisb_m.
+## Estructura aleatoria:
+##   M2, M4 : (1 | idschool)
+##   M3     : (s_nisb_cwc | idschool), por la interacción entre niveles
 ##
 ## Para variables de nivel individual (within-school disponible):
-##   M2/M3 incluyen var_cwc + var_m
-## Para variables de nivel escuela (ic3g13a, ic3g13b):
-##   M2/M3 incluyen solo var_m (el CWC es trivialmente cero)
+##   M2/M3/M4 incluyen var_cwc + var_m
+## Para variables de nivel escuela (ic3g13a):
+##   M2/M3 incluyen solo var_m (el CWC es trivialmente cero); sin M4
 ## -------------------------------------------------------------------
 
 estimar_modelos_moderador <- function(datos, var,
-                                      vars_nivel_escuela = c("ic3g13a", "ic3g13b")) {
+                                      vars_nivel_escuela = c("ic3g13a")) {
 
   var_cwc          <- paste0(var, "_cwc")
   var_m            <- paste0(var, "_m")
@@ -540,12 +609,13 @@ estimar_modelos_moderador <- function(datos, var,
 
   if (es_nivel_escuela) {
     formula_m2 <- as.formula(
-      paste0("pv1civ ~ s_nisb + ", var_m, " + (s_nisb | idschool)")
+      paste0("pv1civ ~ s_nisb_cwc + s_nisb_m + ", var_m,
+             " + (1 | idschool)")
     )
   } else {
     formula_m2 <- as.formula(
-      paste0("pv1civ ~ s_nisb + ", var_cwc, " + ", var_m,
-             " + (s_nisb | idschool)")
+      paste0("pv1civ ~ s_nisb_cwc + s_nisb_m + ", var_cwc, " + ", var_m,
+             " + (1 | idschool)")
     )
   }
   resultados[["M2"]] <- tryCatch(
@@ -555,19 +625,33 @@ estimar_modelos_moderador <- function(datos, var,
 
   if (es_nivel_escuela) {
     formula_m3 <- as.formula(
-      paste0("pv1civ ~ s_nisb + ", var_m,
-             " + s_nisb:", var_m, " + (s_nisb | idschool)")
+      paste0("pv1civ ~ s_nisb_cwc + s_nisb_m + ", var_m,
+             " + s_nisb_cwc:", var_m, " + (s_nisb_cwc | idschool)")
     )
   } else {
     formula_m3 <- as.formula(
-      paste0("pv1civ ~ s_nisb + ", var_cwc, " + ", var_m,
-             " + s_nisb:", var_m, " + (s_nisb | idschool)")
+      paste0("pv1civ ~ s_nisb_cwc + s_nisb_m + ", var_cwc, " + ", var_m,
+             " + s_nisb_cwc:", var_m, " + (s_nisb_cwc | idschool)")
     )
   }
   resultados[["M3"]] <- tryCatch(
     lmer(formula_m3, data = datos, REML = FALSE),
     error = function(e) NULL
   )
+
+  ## M4: interacción del NSE con el componente within-school del moderador.
+  ## No aplica a las variables de nivel escuela (su CWC es cero).
+  ## Interacción dentro del mismo nivel: intercepto aleatorio.
+  if (!es_nivel_escuela) {
+    formula_m4 <- as.formula(
+      paste0("pv1civ ~ s_nisb_cwc + s_nisb_m + ", var_cwc, " + ", var_m,
+             " + s_nisb_cwc:", var_cwc, " + (1 | idschool)")
+    )
+    resultados[["M4"]] <- tryCatch(
+      lmer(formula_m4, data = datos, REML = FALSE),
+      error = function(e) NULL
+    )
+  }
 
   return(resultados)
 }
@@ -577,9 +661,8 @@ estimar_modelos_moderador <- function(datos, var,
 ## -------------------------------------------------------------------
 ## Diagnósticos a NIVEL PAÍS: reporta el ICC del modelo nulo y el LRT
 ## que compara M1a (intercepto aleatorio) con M1b (pendiente aleatoria).
-## El LRT decide, para cada país, si la variación del efecto NSE entre
-## escuelas justifica estimar los moderadores escolares (M2/M3) para
-## todas las variables.
+## El LRT se informa como descripción de la variación del efecto NSE
+## entre escuelas; no decide qué países continúan a M2/M3/M4.
 ## -------------------------------------------------------------------
 
 diagnosticar_pais <- function(modelos_base, pais) {
@@ -627,7 +710,7 @@ extraer_resultados <- function(lista_modelos, pais, var) {
         Pais       = pais, Variable = var, Modelo = nombre_modelo,
         Termino    = "CONVERGENCIA FALLIDA",
         Estimacion = NA, SE = NA, t_valor = NA, p_valor = NA,
-        AIC = NA, BIC = NA, ICC = NA,
+        AIC = NA, BIC = NA, ICC = NA, Singular = NA,
         stringsAsFactors = FALSE
       ))
     }
@@ -651,13 +734,16 @@ extraer_resultados <- function(lista_modelos, pais, var) {
       round(vb / vt, 4)
     }, error = function(e) NA)
 
+    ## Ajuste singular: alguna varianza (p. ej., de la pendiente) ≈ 0
+    coefs$Singular <- isSingular(mod)
+
     coefs$Pais     <- pais
     coefs$Variable <- var
     coefs$Modelo   <- nombre_modelo
 
     coefs[, c("Pais", "Variable", "Modelo", "Termino",
               "Estimacion", "SE", "t_valor", "p_valor",
-              "AIC", "BIC", "ICC")]
+              "AIC", "BIC", "ICC", "Singular")]
   })
 }
 ```
@@ -668,15 +754,16 @@ extraer_resultados <- function(lista_modelos, pais, var) {
 ## (para volver a solo Chile: agregar filter(country == "CHL") abajo)
 ##
 ## Se usa mit_an (muestra analítica sin las escuelas de menos de 5
-## estudiantes), de modo que los cinco modelos comparten exactamente la
-## misma muestra y sus AIC/BIC son comparables entre sí.
+## estudiantes). M0/M1a/M1b comparten la muestra de cada país; M2/M3/M4
+## pueden perder casos por el moderador. Verificar la muestra efectiva
+## antes de comparar AIC/BIC con los modelos base o con otros moderadores.
 ##
-## Estrategia secuencial (evita el cálculo redundante):
+## Estrategia (evita el cálculo redundante):
 ##   1. M0/M1a/M1b se estiman UNA SOLA VEZ por país (no dependen de la
 ##      variable moderadora).
-##   2. El LRT M1b vs M1a decide, por país, si se justifica continuar.
-##   3. SOLO en los países que pasan el LRT se estiman M2/M3 para cada
-##      una de las 9 variables moderadoras.
+##   2. El LRT M1b vs M1a se informa por país, pero no filtra.
+##   3. En TODOS los países se estiman M2/M3 para las 8 variables
+##      moderadoras y M4 para las 7 escalas individuales.
 ## -------------------------------------------------------------------
 
 mit_data_modelo <- mit_an   # sin filtro de país
@@ -684,6 +771,7 @@ mit_data_modelo <- mit_an   # sin filtro de país
 paises <- sort(unique(mit_data_modelo$country))
 cat("Países en la muestra:", paste(paises, collapse = ", "), "\n\n")
 
+## Solo para informar qué países tienen pendiente aleatoria significativa
 umbral_lrt <- 0.05
 
 ## Estructuras de resultados
@@ -692,7 +780,12 @@ tabla_diagnosticos  <- list()
 
 for (pais in paises) {
 
-  datos_pais <- mit_data_modelo %>% filter(country == pais)
+  ## Promedios escolares centrados en la media de las escuelas del país
+  ## (una fila por escuela, para no ponderar por tamaño de escuela)
+  datos_pais <- mit_data_modelo %>%
+    filter(country == pais) %>%
+    mutate(across(c(s_nisb_m, all_of(paste0(vars_mod, "_m"))),
+                  ~ .x - mean(.x[!duplicated(idschool)], na.rm = TRUE)))
 
   ## Paso 1: modelos base (una sola vez por país)
   modelos_base <- estimar_modelos_base(datos_pais)
@@ -707,19 +800,16 @@ for (pais in paises) {
   cat("País:", pais,
       "| ICC:", diag_pais$ICC_M0,
       "| LRT M1b vs M1a p:", diag_pais$LRT_M1b_vs_M1a_p,
-      "|", ifelse(pasa_lrt, "→ se estiman M2/M3", "→ se omiten M2/M3"), "\n")
+      "|", ifelse(pasa_lrt, "pendiente aleatoria significativa",
+                  "pendiente aleatoria no significativa"), "\n")
 
-  ## Paso 3: solo si pasa el LRT se estiman los moderadores por variable
+  ## Paso 3: modelos moderadores por variable, en todos los países
   resultados_modelos[[pais]] <- list()
 
   for (var in vars_mod) {
-    if (pasa_lrt) {
-      modelos_var <- estimar_modelos_moderador(datos_pais, var)
-    } else {
-      modelos_var <- list()   # no se estiman M2/M3
-    }
+    modelos_var <- estimar_modelos_moderador(datos_pais, var)
     ## Cada combinación país × variable conserva los modelos base
-    ## compartidos más (cuando aplica) los moderadores M2/M3
+    ## compartidos más los moderadores M2/M3 (y M4 si aplica)
     resultados_modelos[[pais]][[var]] <- c(modelos_base, modelos_var)
   }
 }
@@ -729,8 +819,8 @@ diagnosticos_df <- bind_rows(tabla_diagnosticos)
 
 n_pasan <- sum(diagnosticos_df$LRT_M1b_vs_M1a_p < umbral_lrt, na.rm = TRUE)
 cat("\n✓ Modelos base estimados para", length(paises), "países.\n")
-cat("✓ Países que pasan el LRT (M2/M3 estimados para las",
-    length(vars_mod), "variables):", n_pasan, "\n")
+cat("✓ Modelos M2/M3/M4 estimados en todos los países.\n")
+cat("✓ Países con LRT p <", umbral_lrt, "(informativo):", n_pasan, "\n")
 ```
 
 ---
@@ -749,8 +839,8 @@ kable(diagnosticos_df,
 
 ```{r exportar-excel-modelos}
 ## -------------------------------------------------------------------
-## 9 archivos Excel (uno por variable), cada uno con una hoja por país
-## que sintetiza los 5 modelos
+## 8 archivos Excel (uno por variable), cada uno con una hoja por país
+## que sintetiza los modelos M0-M4 (sin M4 para el ítem de director)
 ## -------------------------------------------------------------------
 
 dir_output <- "../output/modelos_multinivel"
@@ -778,8 +868,8 @@ for (var in vars_mod) {
 
 ```{r exportar-excel-diagnosticos}
 ## -------------------------------------------------------------------
-## Archivo adicional con los diagnósticos por país (ICC + LRT),
-## que determinan en qué países se estiman los moderadores M2/M3
+## Archivo adicional con los diagnósticos por país (ICC + LRT)
+## (informativos: ya no determinan en qué países se estiman M2/M3/M4)
 ## -------------------------------------------------------------------
 
 writexl::write_xlsx(
@@ -820,104 +910,118 @@ kable(
 )
 ```
 
-```{r clasificacion-modelos-validos}
+```{r clasificacion-interacciones}
 ## -------------------------------------------------------------------
-## Clasificación de modelos válidos (LRT M1b vs M1a p < 0.05)
+## Clasificación de las interacciones de M3 y M4 en todos los países
 ##
-## El LRT se evalúa POR PAÍS: si confirma que la pendiente de NSE varía
-## entre escuelas (M1b > M1a), se justifica buscar moderadores escolares
-## en M3 para TODAS las variables de ese país.
+##   M3: s_nisb_cwc:var_m   → moderación por el promedio escolar
+##                            (interacción entre niveles)
+##   M4: s_nisb_cwc:var_cwc → moderación por la desviación del estudiante
+##                            respecto del promedio de su escuela (within)
 ##
-## Clasificación por el coeficiente de interacción s_nisb:var_m en M3:
-##   Mitigación  : β < 0 y p < 0.05  → el contexto escolar reduce las brechas de origen
-##   Aceleración : β > 0 y p < 0.05  → el contexto escolar amplía las brechas de origen
-##   Reproducción: p ≥ 0.05           → sin efecto de interacción significativo
+## Regla sobre el coeficiente de interacción:
+##   Mitigación  : β < 0 y p < 0.05  → pendiente NSE decreciente con el moderador
+##   Aceleración : β > 0 y p < 0.05  → pendiente NSE creciente con el moderador
+##   Reproducción: demás casos       → categoría residual de la regla
+## Tipo usa el p sin ajustar (por ahora sin corrección por comparaciones
+## múltiples).
+## Son etiquetas operativas: s_abuse mide un clima negativo, por lo que una
+## interacción negativa indica una brecha menor donde hay MÁS abuso.
+## ic3g13a está codificada 1 = Sí, 0 = No.
+## Pasa_LRT y Singular son informativos; no filtran la clasificación.
 ## -------------------------------------------------------------------
 
-## Paso 1: países que pasaron el LRT → todas sus variables son válidas
-paises_validos <- diagnosticos_df %>%
-  filter(!is.na(LRT_M1b_vs_M1a_p), LRT_M1b_vs_M1a_p < 0.05) %>%
-  pull(Pais)
-
-validos_lrt <- expand.grid(
-  Pais     = paises_validos,
-  Variable = vars_mod,
-  stringsAsFactors = FALSE
+## Paso 1: combinaciones país × variable × modelo (M4 sin ítem de director)
+combinaciones <- bind_rows(
+  expand.grid(Modelo = "M3", Pais = paises, Variable = vars_mod,
+              stringsAsFactors = FALSE),
+  expand.grid(Modelo = "M4", Pais = paises,
+              Variable = setdiff(vars_mod, vars_nivel_escuela),
+              stringsAsFactors = FALSE)
 )
 
-cat("Países que pasaron el LRT (p < 0.05):", length(paises_validos),
-    "de", nrow(diagnosticos_df), "\n")
-cat("Combinaciones país × variable a clasificar:", nrow(validos_lrt), "\n\n")
+## Paso 2: extraer el coeficiente de interacción (p sin redondear)
+interacciones <- map_dfr(seq_len(nrow(combinaciones)), function(i) {
 
-## Paso 2: extraer coeficiente de interacción de M3 para los modelos válidos
-interacciones <- map_dfr(seq_len(nrow(validos_lrt)), function(i) {
+  modelo <- combinaciones$Modelo[i]
+  pais   <- combinaciones$Pais[i]
+  var    <- combinaciones$Variable[i]
 
-  pais <- validos_lrt$Pais[i]
-  var  <- validos_lrt$Variable[i]
-
-  mod <- resultados_modelos[[pais]][[var]][["M3"]]
+  mod <- resultados_modelos[[pais]][[var]][[modelo]]
   if (is.null(mod)) return(NULL)
 
-  coefs       <- as.data.frame(coef(summary(mod)))
+  coefs         <- as.data.frame(coef(summary(mod)))
   coefs$Termino <- rownames(coefs)
-  termino_int <- paste0("s_nisb:", var, "_m")
-  fila        <- coefs[coefs$Termino == termino_int, ]
+  sufijo        <- if (modelo == "M3") "_m" else "_cwc"
+  termino_int   <- paste0("s_nisb_cwc:", var, sufijo)
+  fila          <- coefs[coefs$Termino == termino_int, ]
 
   if (nrow(fila) == 0) return(NULL)
 
   data.frame(
+    Modelo           = modelo,
     Pais             = pais,
     Variable         = var,
-    Beta_interaccion = round(fila$Estimate, 4),
-    SE               = round(fila$`Std. Error`, 4),
-    t_valor          = round(fila$`t value`, 4),
-    p_valor          = round(fila$`Pr(>|t|)`, 4),
+    Beta_interaccion = fila$Estimate,
+    SE               = fila$`Std. Error`,
+    t_valor          = fila$`t value`,
+    p_valor          = fila$`Pr(>|t|)`,
+    Singular         = isSingular(mod),
     stringsAsFactors = FALSE
   )
 })
 
-## Paso 3: clasificar cada modelo válido
+## Paso 3: clasificación según el signo y el p sin ajustar
+regla_tipo <- function(p, beta) {
+  case_when(
+    p < 0.05 & beta < 0 ~ "Mitigación",
+    p < 0.05 & beta > 0 ~ "Aceleración",
+    TRUE                ~ "Reproducción"
+  )
+}
+
 clasificacion <- interacciones %>%
-  mutate(
-    Tipo = case_when(
-      p_valor < 0.05 & Beta_interaccion < 0 ~ "Mitigación",
-      p_valor < 0.05 & Beta_interaccion > 0 ~ "Aceleración",
-      TRUE                                   ~ "Reproducción"
-    )
-  ) %>%
-  arrange(Tipo, p_valor)
+  mutate(Tipo = regla_tipo(p_valor, Beta_interaccion)) %>%
+  left_join(diagnosticos_df %>%
+              transmute(Pais, Pasa_LRT = LRT_M1b_vs_M1a_p < umbral_lrt),
+            by = "Pais") %>%
+  mutate(across(c(Beta_interaccion, SE, t_valor, p_valor),
+                ~ round(.x, 4))) %>%
+  select(Modelo, Pais, Variable, Tipo, Beta_interaccion, SE,
+         t_valor, p_valor, Singular, Pasa_LRT) %>%
+  arrange(Modelo, p_valor)
 
 ## Paso 4: mostrar resumen
-cat("=== CLASIFICACIÓN DE MODELOS VÁLIDOS (LRT p < 0.05) ===\n\n")
-cat("Total modelos válidos con interacción extraída:", nrow(clasificacion), "\n\n")
+cat("=== CLASIFICACIÓN DE INTERACCIONES (M3 y M4, todos los países) ===\n\n")
+cat("Pruebas por modelo:\n")
+print(count(clasificacion, Modelo, name = "Pruebas"))
+cat("\n")
 
-resumen_tipos <- clasificacion %>%
-  count(Tipo) %>%
-  rename(N = n)
+resumen_tipos <- clasificacion %>% count(Modelo, Tipo, name = "N")
 print(resumen_tipos)
 cat("\n")
 
-## Paso 5: tablas por tipo
+## Paso 5: tablas por tipo (según p sin ajustar)
 mit_tab  <- clasificacion %>% filter(Tipo == "Mitigación")
 rep_tab  <- clasificacion %>% filter(Tipo == "Reproducción")
 acel_tab <- clasificacion %>% filter(Tipo == "Aceleración")
 
-cat("--- MITIGACIÓN (β < 0, p < 0.05) ---\n")
-cat("El contexto escolar REDUCE las brechas de NSE\n\n")
+cat("--- MITIGACIÓN (β < 0, p < 0.05 sin ajustar) ---\n")
+cat("La pendiente del NSE disminuye al aumentar el moderador\n\n")
 if (nrow(mit_tab) > 0) print(mit_tab) else cat("Ninguna.\n")
 
-cat("\n--- REPRODUCCIÓN (p ≥ 0.05) ---\n")
-cat("Sin efecto de interacción significativo\n\n")
-if (nrow(rep_tab) > 0) print(rep_tab) else cat("Ninguna.\n")
-
-cat("\n--- ACELERACIÓN (β > 0, p < 0.05) ---\n")
-cat("El contexto escolar AMPLÍA las brechas de NSE\n\n")
+cat("\n--- ACELERACIÓN (β > 0, p < 0.05 sin ajustar) ---\n")
+cat("La pendiente del NSE aumenta al aumentar el moderador\n\n")
 if (nrow(acel_tab) > 0) print(acel_tab) else cat("Ninguna.\n")
+
+cat("\n--- REPRODUCCIÓN (p ≥ 0.05 sin ajustar) ---\n")
+cat("Sin interacción significativa:", nrow(rep_tab), "pruebas (ver Excel)\n")
 ```
 
 ```{r tabla-clasificacion}
-kable(clasificacion %>% select(Pais, Variable, Tipo, Beta_interaccion, SE, t_valor, p_valor),
-      caption = "Clasificación de modelos válidos (LRT p < 0.05) por tipo de efecto de interacción",
+## La tabla completa (todas las pruebas) se exporta a Excel
+kable(clasificacion %>% filter(Tipo != "Reproducción"),
+      caption = "Interacciones de M3 y M4 con p < 0.05 sin ajustar",
       digits  = 4)
 ```
 
@@ -926,6 +1030,7 @@ kable(clasificacion %>% select(Pais, Variable, Tipo, Beta_interaccion, SE, t_val
 writexl::write_xlsx(
   list(
     Clasificacion = clasificacion,
+    Resumen       = resumen_tipos,
     Mitigacion    = mit_tab,
     Reproduccion  = rep_tab,
     Aceleracion   = acel_tab
@@ -935,3 +1040,92 @@ writexl::write_xlsx(
 cat("✓ Exportado: clasificacion_modelos.xlsx\n")
 ```
 
+```{r exportar-predicciones}
+## -------------------------------------------------------------------
+## Predicciones y pendientes simples de las interacciones de M3 y M4,
+## para graficar la brecha por NSE a −1 y +1 DE del moderador.
+##
+##   M3: moderador = var_m   (DE entre escuelas, centrada en el país)
+##   M4: moderador = var_cwc (DE dentro de la escuela)
+## Las DE son agrupadas (mismas definiciones que la Tabla 2). Las demás
+## covariables quedan en 0, que es su media (s_nisb_m y var_m están
+## centradas en el país; var_cwc en la escuela).
+## -------------------------------------------------------------------
+
+de_moderador <- map_dfr(vars_mod, function(v) {
+  sd_b <- mit_an %>%
+    group_by(country, idschool) %>%
+    summarise(m = first(.data[[paste0(v, "_m")]]), .groups = "drop") %>%
+    group_by(country) %>% mutate(m = m - mean(m, na.rm = TRUE)) %>%
+    ungroup() %>% pull(m) %>% sd(na.rm = TRUE)
+  tibble(Variable   = v,
+         DE_within  = sd(mit_an[[paste0(v, "_cwc")]], na.rm = TRUE),
+         DE_between = sd_b)
+})
+
+## Fila de la matriz de diseño para cada combinación de valores: cada
+## coeficiente es el producto de sus componentes ("a:b" = a × b)
+fila_diseno <- function(nombres, valores) {
+  map_dbl(nombres, function(nm) {
+    if (nm == "(Intercept)") return(1)
+    prod(map_dbl(strsplit(nm, ":")[[1]], ~ valores[[.x]] %||% 0))
+  })
+}
+
+grilla_nse <- seq(-1.5, 1.5, length.out = 31)
+
+predicciones <- list()
+pendientes   <- list()
+
+for (i in seq_len(nrow(clasificacion))) {
+
+  fila   <- clasificacion[i, ]
+  modelo <- fila$Modelo; pais <- fila$Pais; var <- fila$Variable
+  mod    <- resultados_modelos[[pais]][[var]][[modelo]]
+  if (is.null(mod)) next
+
+  b <- fixef(mod)
+  V <- as.matrix(vcov(mod))
+  mod_term <- if (modelo == "M3") paste0(var, "_m") else paste0(var, "_cwc")
+  de <- de_moderador %>% filter(Variable == var)
+  z  <- c(-1, 1) * if (modelo == "M3") de$DE_between else de$DE_within
+  int_term <- paste0("s_nisb_cwc:", mod_term)
+
+  for (k in 1:2) {
+    X <- t(sapply(grilla_nse, function(x)
+      fila_diseno(names(b), setNames(list(x, z[k]), c("s_nisb_cwc", mod_term)))))
+    pred <- as.vector(X %*% b)
+    ee   <- sqrt(diag(X %*% V %*% t(X)))
+    predicciones[[length(predicciones) + 1]] <- tibble(
+      Modelo = modelo, Pais = pais, Variable = var,
+      Nivel = c("-1 DE", "+1 DE")[k], nse_cwc = grilla_nse,
+      pred = pred, lo = pred - 1.96 * ee, hi = pred + 1.96 * ee)
+  }
+
+  ## Pendiente simple del NSE: b_nse + z * b_int, con su EE
+  pend <- b[["s_nisb_cwc"]] + z * b[[int_term]]
+  ee_p <- sqrt(V["s_nisb_cwc", "s_nisb_cwc"] + z^2 * V[int_term, int_term] +
+                 2 * z * V["s_nisb_cwc", int_term])
+  pendientes[[length(pendientes) + 1]] <- tibble(
+    Modelo = modelo, Pais = pais, Variable = var, Tipo = fila$Tipo,
+    p_valor = fila$p_valor, Singular = fila$Singular,
+    Pendiente_base = b[["s_nisb_cwc"]],
+    Pendiente_menos1DE = pend[1], EE_menos1DE = ee_p[1],
+    Pendiente_mas1DE   = pend[2], EE_mas1DE   = ee_p[2],
+    Cambio_por_DE      = z[2] * b[[int_term]],
+    Cambio_pct         = 100 * z[2] * b[[int_term]] / b[["s_nisb_cwc"]])
+}
+
+predicciones_df <- bind_rows(predicciones)
+pendientes_df   <- bind_rows(pendientes) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 4)))
+
+writexl::write_xlsx(
+  list(Predicciones = predicciones_df %>% mutate(across(where(is.numeric), ~ round(.x, 4))),
+       Pendientes   = pendientes_df,
+       DE_moderador = de_moderador),
+  path = file.path(dir_output, "predicciones_interacciones.xlsx")
+)
+cat("✓ Exportado: predicciones_interacciones.xlsx (",
+    nrow(pendientes_df), "interacciones )\n")
+```
