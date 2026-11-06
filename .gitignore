@@ -3,8 +3,14 @@
 /*_files/
 /*_cache/
 
-# Salidas generadas
-output/
+# Salidas: se versionan las figuras y las tablas que usan los scripts
+output/*
+!output/figuras/
+!output/descriptivos/
+!output/modelos_multinivel/
+# Salidas obsoletas (no las usa el análisis vigente)
+output/modelos_multinivel/modelos_ic3g13b.xlsx
+output/descriptivos/tablas_descriptivas.md
 
 # Datos: ignorar todo data/ y luego incluir solo lo liviano
 data/*

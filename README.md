@@ -132,13 +132,16 @@ mitigacion_analisis/
 ├── data/                          # Fuentes originales y base analítica
 ├── rscripts/
 │   ├── 00_construir_base.R        # Construcción y controles de la base
-│   └── mitigacion_analisis.Rmd    # Preparación, descriptivos, modelos y exportación
+│   ├── mitigacion_analisis.Rmd    # Preparación, descriptivos, modelos y exportación
+│   └── 01_figuras_resultados.R    # Figuras de Resultados (español e inglés)
 ├── manuscripts/
+│   ├── resultados.md / .docx      # Sección de Resultados
 │   └── resultados_descriptivos.md
 ├── output/
-│   ├── mitigacion_analisis.html
+│   ├── mitigacion_analisis.html   # No versionado
 │   ├── descriptivos/             # Tablas para el manuscrito
-│   └── modelos_multinivel/       # Coeficientes, diagnósticos y clasificación
+│   ├── modelos_multinivel/       # Coeficientes, diagnósticos, clasificación y predicciones
+│   └── figuras/{es,en}/          # Figuras 1-3 y S1 (PNG y PDF)
 └── mitigacion_analisis.Rproj
 ```
 
@@ -163,13 +166,18 @@ rmarkdown::render(
   output_format = "html_document",
   output_dir = "output"
 )
+
+# Figuras (lee los .xlsx de output/; no reestima modelos):
+source("rscripts/01_figuras_resultados.R")
 ```
 
 También se puede usar **Knit** en el R Markdown. Sus rutas `../data` y
 `../output` asumen que los chunks se ejecutan desde `rscripts/`, como ocurre
 al renderizar el archivo. La salida PDF opcional requiere además LaTeX.
-Los datos SAS originales y `output/` están excluidos de Git; una copia del
-repositorio no necesariamente los incluye.
+Los datos SAS originales del IDB y el informe HTML están excluidos de Git.
+Sí se versionan `data/mit_data.Rdata`, las tablas `.xlsx` de `output/` y
+las figuras, de modo que el R Markdown y el script de figuras corren con una
+copia del repositorio; solo `00_construir_base.R` requiere los SAS originales.
 
 ## Salidas y estado de los resultados
 
@@ -181,6 +189,10 @@ repositorio no necesariamente los incluye.
 - `output/modelos_multinivel/diagnosticos_modelos.xlsx`: CCI de M0 y LRT por sistema.
 - `output/modelos_multinivel/clasificacion_modelos.xlsx`: interacciones de M3
   y M4 con `p_valor`, `Tipo`, `Singular` y `Pasa_LRT`, más una hoja `Resumen` con los conteos.
+- `output/modelos_multinivel/predicciones_interacciones.xlsx`: rectas predichas
+  y pendientes del NSE a −1 y +1 DE del moderador (insumo de las Figuras 3 y S1).
+- `output/figuras/es/` y `output/figuras/en/`: Figuras 1, 2, 3 y S1 en PNG
+  (300 dpi) y PDF, en español e inglés.
 - `output/mitigacion_analisis.html`: informe con código, tablas y resultados.
 
 Con la especificación actual (NSE separado en `s_nisb_cwc` y `s_nisb_m`, sin
